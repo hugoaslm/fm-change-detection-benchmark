@@ -1,0 +1,41 @@
+dataset:
+  name: "levir_cd"
+  root: "data/raw/LEVIR-CD"
+  tile_size: 256
+  input_size: 252
+  seed: 42
+
+encoders:
+  - name: "rgb_pixels"
+    checkpoint: "none"
+    layers: ["input"]
+  - name: "resnet50_imagenet"
+    checkpoint: "DEFAULT"
+    layers: ["layer3"]
+  - name: "resnet50_s2_moco"
+    checkpoint: "torchgeo_ssl4eo_s12_rgb_moco_efd9723"
+    layers: ["layer3"]
+  - name: "dinov2_vits14"
+    checkpoint: "vit_small_patch14_dinov2.lvd142m"
+    layers: ["block9"]
+
+scoring:
+  methods: ["cosine"]
+
+thresholds:
+  methods: ["unlabeled", "calibrated"]
+
+bootstrap:
+  num_resamples: 100
+  confidence_level: 0.95
+  seed: 42
+
+runtime:
+  device: "auto"
+  max_train_samples: 32
+  max_val_samples: 32
+  max_test_samples: 64
+  cache_dtype: "float16"
+
+output_dir: "outputs/colab_quickstart"
+cache_dir: "outputs/cache"
