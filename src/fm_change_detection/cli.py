@@ -12,6 +12,7 @@ from fm_change_detection.pipeline import (
     run_smoke_test,
 )
 from fm_change_detection.reporting import generate_benchmark_report
+from fm_change_detection.selection import run_validation_selection
 
 
 def _add_runtime_arguments(parser: argparse.ArgumentParser) -> None:
@@ -82,6 +83,16 @@ def main() -> None:
     _add_runtime_arguments(parser_eval)
 
     # 5. benchmark
+    parser_select = subparsers.add_parser(
+        "select",
+        help="Select one layer and score per encoder using train/validation data only",
+    )
+    parser_select.add_argument(
+        "--config", default="configs/selection.yaml", help="Path to selection config YAML"
+    )
+    _add_runtime_arguments(parser_select)
+
+    # 6. benchmark
     parser_bench = subparsers.add_parser(
         "benchmark", help="Run full benchmark across all configured encoders/layers"
     )
@@ -90,14 +101,14 @@ def main() -> None:
     )
     _add_runtime_arguments(parser_bench)
 
-    # 6. robustness
+    # 7. robustness
     parser_rob = subparsers.add_parser("robustness", help="Run robustness perturbation experiments")
     parser_rob.add_argument(
         "--config", default="configs/robustness.yaml", help="Path to robustness config YAML"
     )
     _add_runtime_arguments(parser_rob)
 
-    # 7. report
+    # 8. report
     parser_report = subparsers.add_parser("report", help="Generate Markdown benchmark report")
     parser_report.add_argument(
         "--results", default="outputs/results", help="Directory containing result JSON files"
@@ -135,6 +146,13 @@ def main() -> None:
         cfg = load_config(args.config)
         _apply_runtime_overrides(cfg, args)
         run_single_evaluation(cfg, args.encoder, layer_name=args.layer, score_method=args.score)
+
+    elif args.command == "select":
+        cfg = load_config(args.config)
+        _apply_runtime_overrides(cfg, args)
+        result = run_validation_selection(cfg)
+        print(f"[SELECT] Validation-only report: {result['report_path']}")
+        print(f"[SELECT] Frozen final config: {result['final_config_path']}")
 
     elif args.command == "benchmark":
         cfg = load_config(args.config)

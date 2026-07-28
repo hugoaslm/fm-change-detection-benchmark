@@ -85,12 +85,11 @@ def _get_cached_pair(
     t1 = sample["image_t1"].unsqueeze(0).to(device)
     t2 = sample["image_t2"].unsqueeze(0).to(device)
     f1, f2 = extract_pair_features(encoder, t1, t2, input_size=config.dataset.input_size)
-    cache.save_sample_features(
-        t1_key, {layer_name: f1[layer_name]}, dtype=config.runtime.cache_dtype
-    )
-    cache.save_sample_features(
-        t2_key, {layer_name: f2[layer_name]}, dtype=config.runtime.cache_dtype
-    )
+    # When an encoder exposes several layers, save all of them from this one
+    # forward pass. Validation selection can then compare layers without
+    # repeatedly running the same frozen model.
+    cache.save_sample_features(t1_key, f1, dtype=config.runtime.cache_dtype)
+    cache.save_sample_features(t2_key, f2, dtype=config.runtime.cache_dtype)
     return f1[layer_name].detach().cpu().float(), f2[layer_name].detach().cpu().float()
 
 
@@ -343,7 +342,7 @@ def run_benchmark(config: BenchmarkConfig) -> list[dict]:
     results = []
     for enc in config.encoders:
         for layer in enc.layers:
-            for score in config.scoring.methods:
+            for score in enc.scores or config.scoring.methods:
                 res = run_single_evaluation(config, enc.name, layer, score_method=score)
                 results.append(res)
 

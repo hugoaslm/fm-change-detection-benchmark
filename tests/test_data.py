@@ -45,3 +45,9 @@ def test_validator_rejects_split_overlap(synthetic_dataset_dir):
 
     with pytest.raises(ValueError, match="Split leakage"):
         validate_dataset_layout(synthetic_dataset_dir)
+
+
+def test_validator_can_check_train_and_val_without_test_list(synthetic_dataset_dir):
+    (synthetic_dataset_dir / "list" / "test.txt").unlink()
+    counts = validate_dataset_layout(synthetic_dataset_dir, splits=("train", "val"))
+    assert set(counts) == {"train", "val"}

@@ -23,6 +23,7 @@ class EncoderConfig:
     name: str
     checkpoint: str = "none"
     layers: list[str] = field(default_factory=list)
+    scores: list[str] | None = None
 
 
 @dataclass
@@ -101,6 +102,7 @@ def load_config(config_path: str | Path) -> BenchmarkConfig:
                 name=enc_data.get("name", "mock_encoder"),
                 checkpoint=enc_data.get("checkpoint", "none"),
                 layers=enc_data.get("layers", []),
+                scores=enc_data.get("scores"),
             )
         )
     elif "encoders" in data:
@@ -110,6 +112,7 @@ def load_config(config_path: str | Path) -> BenchmarkConfig:
                     name=enc_data.get("name"),
                     checkpoint=enc_data.get("checkpoint", "none"),
                     layers=enc_data.get("layers", []),
+                    scores=enc_data.get("scores"),
                 )
             )
 
@@ -155,6 +158,14 @@ def load_config(config_path: str | Path) -> BenchmarkConfig:
     unknown_scores = set(scoring_methods) - allowed_scores
     if unknown_scores:
         raise ValueError(f"Unknown scoring methods: {sorted(unknown_scores)}")
+    for encoder_cfg in encoder_cfgs:
+        if encoder_cfg.scores is not None:
+            unknown_encoder_scores = set(encoder_cfg.scores) - allowed_scores
+            if unknown_encoder_scores:
+                raise ValueError(
+                    f"Unknown scoring methods for {encoder_cfg.name}: "
+                    f"{sorted(unknown_encoder_scores)}"
+                )
     allowed_thresholds = {"unlabeled", "calibrated"}
     unknown_thresholds = set(th_methods) - allowed_thresholds
     if unknown_thresholds:

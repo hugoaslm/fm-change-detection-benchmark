@@ -105,7 +105,9 @@ class LEVIRCDDataset(Dataset):
         )
 
 
-def validate_dataset_layout(root: str | Path) -> dict[str, int]:
+def validate_dataset_layout(
+    root: str | Path, splits: tuple[str, ...] = ("train", "val", "test")
+) -> dict[str, int]:
     """Validate LEVIR-CD directory layout and return sample counts per split."""
     path = Path(root)
     required_dirs = [path / "A", path / "B", path / "label", path / "list"]
@@ -116,7 +118,7 @@ def validate_dataset_layout(root: str | Path) -> dict[str, int]:
     counts = {}
     split_names: dict[str, set[str]] = {}
     split_scenes: dict[str, set[str]] = {}
-    for split in ["train", "val", "test"]:
+    for split in splits:
         list_file = path / "list" / f"{split}.txt"
         if not list_file.exists():
             raise FileNotFoundError(f"Required split list file missing: {list_file}")
@@ -138,26 +140,29 @@ def validate_dataset_layout(root: str | Path) -> dict[str, int]:
                     )
         counts[split] = len(lines)
 
-    for left, right in (("train", "val"), ("train", "test"), ("val", "test")):
-        overlap = split_names[left] & split_names[right]
-        if overlap:
-            example = min(overlap)
-            raise ValueError(f"Split leakage between {left} and {right}; example: {example}")
-        scene_overlap = split_scenes[left] & split_scenes[right]
-        if scene_overlap:
-            example = min(scene_overlap)
-            raise ValueError(
-                f"Scene-level split leakage between {left} and {right}; example: {example}"
-            )
+    for left_index, left in enumerate(splits):
+        for right in splits[left_index + 1 :]:
+            overlap = split_names[left] & split_names[right]
+            if overlap:
+                example = min(overlap)
+                raise ValueError(f"Split leakage between {left} and {right}; example: {example}")
+            scene_overlap = split_scenes[left] & split_scenes[right]
+            if scene_overlap:
+                example = min(scene_overlap)
+                raise ValueError(
+                    f"Scene-level split leakage between {left} and {right}; example: {example}"
+                )
 
     return counts
 
 
-def compute_dataset_manifest_hash(root: str | Path) -> str:
+def compute_dataset_manifest_hash(
+    root: str | Path, splits: tuple[str, ...] = ("train", "val", "test")
+) -> str:
     """Hash split manifests and referenced relative names without reading image bytes."""
     path = Path(root)
     digest = hashlib.sha256()
-    for split in ("train", "val", "test"):
+    for split in splits:
         list_path = path / "list" / f"{split}.txt"
         digest.update(split.encode())
         digest.update(list_path.read_bytes())
