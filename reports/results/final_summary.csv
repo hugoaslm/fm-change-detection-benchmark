@@ -1,0 +1,5 @@
+encoder,checkpoint,layer,score,test_images,average_precision,auroc,unlabeled_threshold,unlabeled_f1,unlabeled_iou,calibrated_threshold,calibrated_precision,calibrated_recall,calibrated_f1,calibrated_iou,calibrated_false_positive_rate
+rgb_pixels,none,input,cosine,2048,0.053147,0.528053,0.091797,0.035118,0.017873,0.003702,0.057767,0.432375,0.101918,0.053695,0.378551
+resnet50_imagenet,DEFAULT,layer3,cosine,2048,0.207392,0.883747,0.413423,0.195597,0.108400,0.535126,0.211858,0.628390,0.316881,0.188270,0.125481
+resnet50_s2_moco,torchgeo_ssl4eo_s12_rgb_moco_efd9723,layer3,cosine,2048,0.204317,0.860751,0.508537,0.181130,0.099584,0.663169,0.209273,0.583970,0.308126,0.182121,0.118438
+dinov2_vits14,vit_small_patch14_dinov2.lvd142m,block3,cosine,2048,0.240633,0.898787,0.420585,0.231803,0.131095,0.543258,0.239591,0.622153,0.345955,0.209157,0.105989
