@@ -1,5 +1,9 @@
-import argparse
+import os
 import sys
+
+print(f"[CLI] launching fmcd pid={os.getpid()} argv={sys.argv}", flush=True)
+
+import argparse
 
 from fm_change_detection.config import load_config
 from fm_change_detection.data import validate_dataset_layout

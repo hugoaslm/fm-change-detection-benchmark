@@ -45,6 +45,15 @@ from fm_change_detection.thresholds import (
     fit_calibrated_f1_threshold,
 )
 
+_log_path: Path | None = None
+
+
+def _log(msg: str) -> None:
+    print(msg, flush=True)
+    if _log_path is not None:
+        with open(_log_path, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+
 
 def resolve_device(requested: str) -> torch.device:
     if requested == "auto":
@@ -121,13 +130,12 @@ def _preload_features_batched(
             pending_indices.append(i)
 
     if not pending_indices:
-        print(f"[FRONTIER]   preload {split}: all {len(samples)} samples from cache", flush=True)
+        _log(f"[FRONTIER]   preload {split}: all {len(samples)} samples from cache")
         return [features[i] for i in range(len(samples))]
 
-    print(
+    _log(
         f"[FRONTIER]   preload {split}: encoding {len(pending_indices)}/{len(samples)} samples "
-        f"(batch_size={batch_size})",
-        flush=True,
+        f"(batch_size={batch_size})"
     )
     t0 = time.time()
     encoded = 0
@@ -157,10 +165,9 @@ def _preload_features_batched(
             )
         encoded += len(idx_chunk)
         rate = encoded / max(time.time() - t0, 1e-6)
-        print(
+        _log(
             f"[FRONTIER]   preload {split}: {encoded}/{len(pending_indices)} samples "
-            f"({time.time() - t0:.0f}s, {rate:.0f} samples/s)",
-            flush=True,
+            f"({time.time() - t0:.0f}s, {rate:.0f} samples/s)"
         )
 
     result: list[tuple[Tensor, Tensor]] = []
@@ -543,7 +550,10 @@ def run_robustness(config: BenchmarkConfig) -> list[dict]:
 
 
 def run_detectability(config: BenchmarkConfig) -> dict:
-    print("[FRONTIER] Running controlled-change detectability frontier...", flush=True)
+    global _log_path
+    _log_path = Path(config.output_dir) / "frontier_progress.log"
+    _log_path.parent.mkdir(parents=True, exist_ok=True)
+    _log("[FRONTIER] Running controlled-change detectability frontier...")
     dataset_root = config.dataset.root
     validate_dataset_layout(dataset_root)
     manifest_hash = compute_dataset_manifest_hash(dataset_root)
@@ -552,6 +562,7 @@ def run_detectability(config: BenchmarkConfig) -> dict:
     device = resolve_device(config.runtime.device)
 
     synth = config.synthetic_changes
+    _log(f"[FRONTIER] loading samples: val={len(val_ds)} test={len(test_ds)}...")
     val_samples = list(
         _iter_limited(val_ds, config.runtime.max_val_samples, config.dataset.seed + 1)
     )
@@ -560,25 +571,22 @@ def run_detectability(config: BenchmarkConfig) -> dict:
     )
     if not test_samples:
         raise RuntimeError("Frontier evaluation received no test samples")
+    _log(f"[FRONTIER] loaded {len(val_samples)} val / {len(test_samples)} test samples")
 
     t0_total = time.time()
     cells_total = len(config.encoders) * len(synth.area_fractions) * len(synth.magnitudes)
     cells_done = 0
-    print(
+    _log(
         f"[FRONTIER] device={device} encoders={[e.name for e in config.encoders]} "
         f"val={len(val_samples)} test={len(test_samples)} areas={synth.area_fractions} "
-        f"magnitudes={synth.magnitudes} batch_size={config.runtime.frontier_batch_size}",
-        flush=True,
+        f"magnitudes={synth.magnitudes} batch_size={config.runtime.frontier_batch_size}"
     )
 
     frontier_records = []
     for enc_index, enc_cfg in enumerate(config.encoders, start=1):
         enc_name = enc_cfg.name
         layer = enc_cfg.layers[0] if enc_cfg.layers else "layer4"
-        print(
-            f"[FRONTIER] encoder {enc_index}/{len(config.encoders)}: {enc_name} layer={layer}",
-            flush=True,
-        )
+        _log(f"[FRONTIER] encoder {enc_index}/{len(config.encoders)}: {enc_name} layer={layer}")
         encoder = _move_encoder(
             get_encoder(enc_name, checkpoint=enc_cfg.checkpoint, layers=(layer,)), device
         )
@@ -629,10 +637,7 @@ def run_detectability(config: BenchmarkConfig) -> dict:
                 if region is not None:
                     usable.append((sample, region))
             if not usable:
-                print(
-                    f"[FRONTIER] No usable no-change region for {enc_name} area={area}; skipping",
-                    flush=True,
-                )
+                _log(f"[FRONTIER] No usable no-change region for {enc_name} area={area}; skipping")
                 continue
 
             t1_features = [test_t1_by_id[sample["sample_id"]] for sample, _region in usable]
@@ -716,11 +721,10 @@ def run_detectability(config: BenchmarkConfig) -> dict:
                 cells_done += 1
                 elapsed = time.time() - t0_total
                 eta = elapsed / cells_done * (cells_total - cells_done)
-                print(
+                _log(
                     f"[FRONTIER] {enc_name} area={area:.3f} mag={mag:.3f} "
                     f"AP={metrics_calib.average_precision:.4f} "
-                    f"[{cells_done}/{cells_total} cells, {elapsed:.0f}s elapsed, ~{eta:.0f}s remaining]",
-                    flush=True,
+                    f"[{cells_done}/{cells_total} cells, {elapsed:.0f}s elapsed, ~{eta:.0f}s remaining]"
                 )
 
     generate_frontier_report(
