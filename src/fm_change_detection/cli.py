@@ -7,6 +7,7 @@ from fm_change_detection.config import load_config
 from fm_change_detection.data import validate_dataset_layout
 from fm_change_detection.pipeline import (
     run_benchmark,
+    run_detectability,
     run_robustness,
     run_single_evaluation,
     run_smoke_test,
@@ -117,6 +118,16 @@ def main() -> None:
         "--output", default="reports/benchmark.md", help="Output markdown report file"
     )
 
+    # 9. frontier
+    parser_frontier = subparsers.add_parser(
+        "frontier",
+        help="Run controlled-change detectability frontier on frozen test tiles",
+    )
+    parser_frontier.add_argument(
+        "--config", default="configs/detectability.yaml", help="Path to frontier config YAML"
+    )
+    _add_runtime_arguments(parser_frontier)
+
     args = parser.parse_args()
 
     if not args.command:
@@ -167,6 +178,14 @@ def main() -> None:
     elif args.command == "report":
         generate_benchmark_report(args.results, args.output)
         print(f"[REPORT] Benchmark report updated at '{args.output}'")
+
+    elif args.command == "frontier":
+        cfg = load_config(args.config)
+        _apply_runtime_overrides(cfg, args)
+        result = run_detectability(cfg)
+        print(f"[FRONTIER] Frontier records: {len(result['records'])}")
+        print(f"[FRONTIER] Report: {result['report_path']}")
+        print(f"[FRONTIER] Summary CSV: {result['summary_path']}")
 
 
 if __name__ == "__main__":

@@ -50,6 +50,15 @@ class PerturbationConfig:
 
 
 @dataclass
+class SyntheticChangeConfig:
+    """Controlled synthetic change grid for detectability-frontier runs."""
+
+    magnitudes: list[float] = field(default_factory=lambda: [0.05, 0.10, 0.20, 0.40])
+    area_fractions: list[float] = field(default_factory=lambda: [0.01, 0.04, 0.16])
+    seed: int = 7
+
+
+@dataclass
 class RuntimeConfig:
     """Execution controls shared by local and notebook runs."""
 
@@ -69,8 +78,10 @@ class BenchmarkConfig:
     bootstrap: BootstrapConfig = field(default_factory=BootstrapConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     perturbations: list[PerturbationConfig] = field(default_factory=list)
+    synthetic_changes: SyntheticChangeConfig = field(default_factory=SyntheticChangeConfig)
     output_dir: str = "outputs/results"
     cache_dir: str = "outputs/cache"
+    report_dir: str = "reports"
     raw_dict: dict[str, Any] = field(default_factory=dict)
 
 
@@ -145,6 +156,13 @@ def load_config(config_path: str | Path) -> BenchmarkConfig:
         for p in data["perturbations"]:
             pert_cfgs.append(PerturbationConfig(name=p["name"], values=p["values"]))
 
+    synth_data = data.get("synthetic_changes", {})
+    synth_cfg = SyntheticChangeConfig(
+        magnitudes=list(synth_data.get("magnitudes", [0.05, 0.10, 0.20, 0.40])),
+        area_fractions=list(synth_data.get("area_fractions", [0.01, 0.04, 0.16])),
+        seed=int(synth_data.get("seed", 7)),
+    )
+
     runtime_data = data.get("runtime", {})
     runtime_cfg = RuntimeConfig(
         device=str(runtime_data.get("device", "auto")),
@@ -179,7 +197,9 @@ def load_config(config_path: str | Path) -> BenchmarkConfig:
         bootstrap=bootstrap_cfg,
         runtime=runtime_cfg,
         perturbations=pert_cfgs,
+        synthetic_changes=synth_cfg,
         output_dir=data.get("output_dir", "outputs/results"),
         cache_dir=data.get("cache_dir", "outputs/cache"),
+        report_dir=data.get("report_dir", "reports"),
         raw_dict=data,
     )

@@ -4,11 +4,18 @@ import random
 import time
 import uuid
 from collections.abc import Iterator
+from pathlib import Path
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 
 from fm_change_detection.cache import FeatureCache, compute_config_hash
+from fm_change_detection.changes import (
+    apply_additive_change,
+    pick_change_region,
+    synthetic_change_mask,
+)
 from fm_change_detection.config import BenchmarkConfig
 from fm_change_detection.data import (
     ChangeSample,
@@ -23,7 +30,11 @@ from fm_change_detection.metrics import (
     compute_binary_metrics,
     compute_cluster_bootstrap_ci,
 )
-from fm_change_detection.reporting import generate_benchmark_report, save_result_record
+from fm_change_detection.reporting import (
+    generate_benchmark_report,
+    generate_frontier_report,
+    save_result_record,
+)
 from fm_change_detection.robustness import apply_perturbation
 from fm_change_detection.scoring import (
     FeatureStatsTracker,
@@ -477,3 +488,168 @@ def run_robustness(config: BenchmarkConfig) -> list[dict]:
                 results.append({"run_id": run_id, "saved": str(saved)})
 
     return results
+
+
+def run_detectability(config: BenchmarkConfig) -> dict:
+    """Map the controlled-change detectability frontier on frozen test tiles.
+
+    Synthetic additive changes of known magnitude and area are injected into
+    no-change regions of the T2 timestamp. Detection metrics are measured with
+    the clean validation-fitted thresholds held fixed, so a drop in performance
+    reflects the representation's ability to separate ever smaller or fainter
+    changes rather than threshold recalibration.
+    """
+    print("[FRONTIER] Running controlled-change detectability frontier...")
+    dataset_root = config.dataset.root
+    validate_dataset_layout(dataset_root)
+    manifest_hash = compute_dataset_manifest_hash(dataset_root)
+    val_ds = LEVIRCDDataset(dataset_root, split="val", input_size=config.dataset.input_size)
+    test_ds = LEVIRCDDataset(dataset_root, split="test", input_size=config.dataset.input_size)
+    device = resolve_device(config.runtime.device)
+
+    synth = config.synthetic_changes
+    test_samples = list(
+        _iter_limited(test_ds, config.runtime.max_test_samples, config.dataset.seed + 2)
+    )
+    if not test_samples:
+        raise RuntimeError("Frontier evaluation received no test samples")
+
+    frontier_records = []
+    for enc_cfg in config.encoders:
+        enc_name = enc_cfg.name
+        layer = enc_cfg.layers[0] if enc_cfg.layers else "layer4"
+        encoder = _move_encoder(
+            get_encoder(enc_name, checkpoint=enc_cfg.checkpoint, layers=(layer,)), device
+        )
+        cfg_hash = compute_config_hash(
+            dataset_name=config.dataset.name,
+            encoder_name=enc_name,
+            checkpoint=encoder.metadata.checkpoint,
+            layers=(layer,),
+            input_size=config.dataset.input_size,
+            manifest_hash=manifest_hash,
+            preprocessing={
+                "mean": encoder.metadata.normalization_mean,
+                "std": encoder.metadata.normalization_std,
+                "cache_dtype": config.runtime.cache_dtype,
+            },
+        )
+        cache = FeatureCache(config.cache_dir, config.dataset.name, cfg_hash)
+
+        # 1. Fit clean validation thresholds (never on test labels).
+        val_scores, val_masks = [], []
+        for sample in _iter_limited(
+            val_ds, config.runtime.max_val_samples, config.dataset.seed + 1
+        ):
+            f1_layer, f2_layer = _get_cached_pair(
+                sample, "val", layer, encoder, cache, config, device
+            )
+            s_map = cosine_score(f1_layer, f2_layer)
+            s_up = upsample_score_map(s_map, target_size=tuple(sample["change_mask"].shape))
+            val_scores.append(s_up.squeeze(0))
+            val_masks.append(sample["change_mask"])
+
+        val_stacked = torch.stack(val_scores)
+        val_mask_stacked = torch.stack(val_masks)
+        calib_th = fit_calibrated_f1_threshold(val_stacked, val_mask_stacked)
+        otsu_th = compute_otsu_threshold(val_stacked)
+
+        # 2. Precompute one deterministic change region per sample and area, then
+        #    sweep magnitude on that same region so intensity is the only variable.
+        for area in synth.area_fractions:
+            region_seed = (hash((synth.seed, area)) % (2**31)) & 0x7FFFFFFF
+            usable = []
+            for s_index, sample in enumerate(test_samples):
+                rng = np.random.default_rng(region_seed + s_index)
+                region = pick_change_region(sample["change_mask"], area, rng)
+                if region is not None:
+                    usable.append((sample, region))
+            if not usable:
+                print(f"[FRONTIER] No usable no-change region for {enc_name} area={area}; skipping")
+                continue
+
+            for mag in synth.magnitudes:
+                scores, masks = [], []
+                started = time.time()
+                for sample, region in usable:
+                    f1_layer, _ = _get_cached_pair(
+                        sample, "test", layer, encoder, cache, config, device
+                    )
+                    t2_modified = (
+                        apply_additive_change(sample["image_t2"], region, mag)
+                        .unsqueeze(0)
+                        .to(device)
+                    )
+                    t2_input = preprocess_images_for_encoder(
+                        t2_modified, input_size=config.dataset.input_size
+                    )
+                    f2_layer = encoder.encode(t2_input)[layer].detach().cpu().float()
+                    s_map = cosine_score(f1_layer, f2_layer)
+                    s_up = upsample_score_map(s_map, target_size=tuple(sample["change_mask"].shape))
+                    scores.append(s_up.squeeze(0).cpu())
+                    masks.append(synthetic_change_mask(region, sample["change_mask"]))
+
+                metrics_calib = compute_binary_metrics(scores, masks, calib_th)
+                metrics_otsu = compute_binary_metrics(scores, masks, otsu_th)
+
+                run_id = f"frontier_{enc_name}_{layer}_{mag}_{area}"
+                save_result_record(
+                    results_dir=config.output_dir,
+                    run_id=run_id,
+                    dataset=config.dataset.name,
+                    manifest_hash=manifest_hash,
+                    encoder=enc_name,
+                    checkpoint=encoder.metadata.checkpoint,
+                    layer=layer,
+                    score_method="cosine",
+                    threshold_method="calibrated_frozen",
+                    seed=config.dataset.seed,
+                    metrics=metrics_calib,
+                    runtime_seconds=time.time() - started,
+                    additional_fields={
+                        "synthetic_magnitude": mag,
+                        "synthetic_area_fraction": area,
+                        "calibration_threshold": calib_th,
+                        "otsu_threshold": otsu_th,
+                        "synthetic_samples": metrics_calib.num_images,
+                        "cache_config_hash": cfg_hash,
+                        "device": str(device),
+                        "max_val_samples": config.runtime.max_val_samples,
+                        "max_test_samples": config.runtime.max_test_samples,
+                    },
+                )
+
+                frontier_records.append(
+                    {
+                        "encoder": enc_name,
+                        "layer": layer,
+                        "checkpoint": encoder.metadata.checkpoint,
+                        "magnitude": mag,
+                        "area_fraction": area,
+                        "num_samples": metrics_calib.num_images,
+                        "num_pixels": metrics_calib.num_pixels,
+                        "ap": metrics_calib.average_precision,
+                        "auroc": metrics_calib.auroc,
+                        "calibrated_f1": metrics_calib.f1,
+                        "calibrated_iou": metrics_calib.iou,
+                        "calibrated_fpr": metrics_calib.false_positive_rate,
+                        "otsu_f1": metrics_otsu.f1,
+                        "calibration_threshold": calib_th,
+                        "otsu_threshold": otsu_th,
+                    }
+                )
+                print(
+                    f"[FRONTIER] {enc_name} area={area:.3f} mag={mag:.3f} AP={metrics_calib.average_precision:.4f}"
+                )
+
+    generate_frontier_report(
+        frontier_records,
+        results_dir=config.output_dir,
+        report_path=str(Path(config.report_dir) / "frontier.md"),
+        figures_dir=str(Path(config.report_dir) / "figures"),
+    )
+    return {
+        "records": frontier_records,
+        "report_path": str(Path(config.report_dir) / "frontier.md"),
+        "summary_path": str(Path(config.output_dir) / "frontier.csv"),
+    }

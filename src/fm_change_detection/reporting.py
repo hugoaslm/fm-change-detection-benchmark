@@ -154,6 +154,108 @@ def save_result_record(
     return json_path
 
 
+def generate_frontier_report(
+    records: list[dict[str, Any]],
+    results_dir: str | Path,
+    report_path: str | Path,
+    figures_dir: str | Path | None = None,
+) -> None:
+    """Write a detectability-frontier CSV, markdown report, and per-encoder plots.
+
+    Args:
+        records: Per (encoder, magnitude, area fraction) frontier rows.
+        results_dir: Directory for the machine-readable frontier CSV.
+        report_path: Markdown report output path.
+        figures_dir: Optional directory for AP-vs-magnitude frontier plots.
+    """
+    res_dir = Path(results_dir)
+    res_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = res_dir / "frontier.csv"
+    if records:
+        fieldnames = list(records[0])
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(records)
+
+    out_file = Path(report_path)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = [
+        "# Controlled-change detectability frontier",
+        "",
+        (
+            "Synthetic additive changes of known magnitude and spatial extent are injected into "
+            "regions of the T2 timestamp that the real labels mark as unchanged. Ground truth is "
+            "exactly the injected region. Thresholds are fitted on the clean validation split only."
+        ),
+        "",
+    ]
+
+    if not records:
+        lines.append("*No frontier records produced.*")
+    else:
+        encoders = sorted({(r["encoder"], r["layer"]) for r in records})
+        for encoder, layer in encoders:
+            lines.append(f"## `{encoder}` / `{layer}`")
+            lines.append("")
+            lines.append(
+                "| Area | Magnitude | Samples | AP | AUROC | F1 (calib) | IoU (calib) | FPR (calib) |"
+            )
+            lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+            subset = [r for r in records if r["encoder"] == encoder and r["layer"] == layer]
+            for r in sorted(subset, key=lambda row: (row["area_fraction"], row["magnitude"])):
+                lines.append(
+                    f"| {r['area_fraction']:.3f} | {r['magnitude']:.3f} | "
+                    f"{r['num_samples']} | {r['ap']:.4f} | {r['auroc']:.4f} | "
+                    f"{r['calibrated_f1']:.4f} | {r['calibrated_iou']:.4f} | "
+                    f"{r['calibrated_fpr']:.4f} |"
+                )
+            lines.append("")
+
+    with open(out_file, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    if figures_dir is not None:
+        fig_dir = Path(figures_dir)
+        fig_dir.mkdir(parents=True, exist_ok=True)
+        for encoder in sorted({r["encoder"] for r in records}):
+            _save_frontier_plot(
+                [r for r in records if r["encoder"] == encoder], fig_dir / f"frontier_{encoder}.png"
+            )
+
+
+def _save_frontier_plot(records: list[dict[str, Any]], output_path: Path) -> None:
+    """Plot AP vs magnitude with one line per area fraction."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    for area in sorted({r["area_fraction"] for r in records}):
+        subset = sorted(
+            [r for r in records if r["area_fraction"] == area], key=lambda row: row["magnitude"]
+        )
+        if not subset:
+            continue
+        ax.plot(
+            [r["magnitude"] for r in subset],
+            [r["ap"] for r in subset],
+            marker="o",
+            label=f"area = {area:.1%}",
+        )
+    ax.set_xlabel("Change magnitude (additive offset in [0, 1])")
+    ax.set_ylabel("Average precision")
+    ax.set_title(f"Detectability frontier: {records[0]['encoder']}")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+
+
 def generate_benchmark_report(results_dir: str | Path, output_file: str | Path) -> None:
     """Generate Markdown benchmark report from saved result JSON records."""
     res_dir = Path(results_dir)
