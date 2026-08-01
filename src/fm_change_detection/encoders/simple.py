@@ -33,6 +33,11 @@ class MockEncoder(nn.Module):
         super().__init__()
         self.conv1 = nn.Conv2d(3, 8, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1)
+        generator = torch.Generator().manual_seed(42)
+        nn.init.kaiming_normal_(self.conv1.weight, generator=generator)
+        nn.init.kaiming_normal_(self.conv2.weight, generator=generator)
+        nn.init.zeros_(self.conv1.bias)
+        nn.init.zeros_(self.conv2.bias)
         self.eval()
         for parameter in self.parameters():
             parameter.requires_grad_(False)

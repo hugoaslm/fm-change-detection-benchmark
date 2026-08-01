@@ -535,26 +535,39 @@ def run_detectability(config: BenchmarkConfig) -> dict:
                 print(f"[FRONTIER] No usable no-change region for {enc_name} area={area}; skipping")
                 continue
 
+            t1_features = []
+            for sample, region in usable:
+                f1_layer, _ = _get_cached_pair(
+                    sample, "test", layer, encoder, cache, config, device
+                )
+                t1_features.append(f1_layer[0].float())
+
+            batch_size = config.runtime.frontier_batch_size
             for mag in synth.magnitudes:
                 scores, masks = [], []
                 started = time.time()
-                for sample, region in usable:
-                    f1_layer, _ = _get_cached_pair(
-                        sample, "test", layer, encoder, cache, config, device
+                for start in range(0, len(usable), batch_size):
+                    chunk = usable[start : start + batch_size]
+                    t1_batch = torch.stack(
+                        [t1_features[i] for i in range(start, start + len(chunk))]
                     )
-                    t2_modified = (
-                        apply_additive_change(sample["image_t2"], region, mag)
-                        .unsqueeze(0)
-                        .to(device)
-                    )
+                    t2_batch = torch.stack(
+                        [
+                            apply_additive_change(sample["image_t2"], region, mag)
+                            for sample, region in chunk
+                        ]
+                    ).to(device)
                     t2_input = preprocess_images_for_encoder(
-                        t2_modified, input_size=config.dataset.input_size
+                        t2_batch, input_size=config.dataset.input_size
                     )
-                    f2_layer = encoder.encode(t2_input)[layer].detach().cpu().float()
-                    s_map = cosine_score(f1_layer, f2_layer)
-                    s_up = upsample_score_map(s_map, target_size=tuple(sample["change_mask"].shape))
-                    scores.append(s_up.squeeze(0).cpu())
-                    masks.append(synthetic_change_mask(region, sample["change_mask"]))
+                    f2_batch = encoder.encode(t2_input)[layer].detach().cpu().float()
+                    s_map = cosine_score(t1_batch, f2_batch)
+                    s_up = upsample_score_map(
+                        s_map, target_size=tuple(chunk[0][0]["change_mask"].shape)
+                    )
+                    for j, (sample, region) in enumerate(chunk):
+                        scores.append(s_up[j].cpu())
+                        masks.append(synthetic_change_mask(region, sample["change_mask"]))
 
                 metrics_calib = compute_binary_metrics(scores, masks, calib_th)
                 metrics_otsu = compute_binary_metrics(scores, masks, otsu_th)

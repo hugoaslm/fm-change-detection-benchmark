@@ -1,3 +1,5 @@
+import pytest
+
 from fm_change_detection.config import (
     BenchmarkConfig,
     DatasetConfig,
@@ -54,3 +56,23 @@ def test_larger_magnitude_is_more_detectable(tmp_dir, synthetic_dataset_dir):
     faint = by_key[(0.1, 0.04)]["ap"]
     strong = by_key[(0.3, 0.04)]["ap"]
     assert strong >= faint
+
+
+def test_batched_and_single_frontier_runs_agree(tmp_dir, synthetic_dataset_dir):
+    cfg_single = _frontier_config(tmp_dir, synthetic_dataset_dir)
+    cfg_single.runtime.frontier_batch_size = 1
+    cfg_single.cache_dir = str(tmp_dir / "cache_single")
+    cfg_batched = _frontier_config(tmp_dir, synthetic_dataset_dir)
+    cfg_batched.runtime.frontier_batch_size = 2
+    cfg_batched.cache_dir = str(tmp_dir / "cache_batched")
+
+    single = run_detectability(cfg_single)
+    batched = run_detectability(cfg_batched)
+
+    single_records = {r["magnitude"]: r for r in single["records"]}
+    batched_records = {r["magnitude"]: r for r in batched["records"]}
+    assert set(single_records) == set(batched_records)
+    for magnitude, record in single_records.items():
+        assert record["num_samples"] == batched_records[magnitude]["num_samples"]
+        assert record["ap"] == pytest.approx(batched_records[magnitude]["ap"], abs=1e-3)
+        assert record["auroc"] == pytest.approx(batched_records[magnitude]["auroc"], abs=1e-3)

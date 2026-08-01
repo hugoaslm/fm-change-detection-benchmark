@@ -33,6 +33,7 @@ runtime:
   max_val_samples: null
   max_test_samples: null
   cache_dtype: "float16"
+  frontier_batch_size: 32
 
 output_dir: "outputs/results_frontier"
 cache_dir: "outputs/cache"

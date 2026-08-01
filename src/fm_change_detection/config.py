@@ -61,6 +61,7 @@ class RuntimeConfig:
     max_val_samples: int | None = None
     max_test_samples: int | None = None
     cache_dtype: str = "float16"
+    frontier_batch_size: int = 32
 
 
 @dataclass
@@ -163,6 +164,7 @@ def load_config(config_path: str | Path) -> BenchmarkConfig:
         max_val_samples=runtime_data.get("max_val_samples"),
         max_test_samples=runtime_data.get("max_test_samples"),
         cache_dtype=str(runtime_data.get("cache_dtype", "float16")),
+        frontier_batch_size=int(runtime_data.get("frontier_batch_size", 32)),
     )
 
     allowed_scores = {"cosine", "standardized_euclidean"}
