@@ -85,6 +85,24 @@ four frozen configurations on all 2,048 test tiles. Two thresholding regimes are
 No model, layer, distance, or threshold was selected using test labels. All learned encoders
 remain in evaluation mode with gradients disabled.
 
+### Detectability frontier (experimental)
+
+A controlled-change experiment that maps *where each frozen representation stops working*.
+Synthetic additive changes of known intensity and spatial extent are injected into regions of
+the T2 timestamp that the real labels mark as unchanged, producing exactly controlled ground
+truth. Detection metrics are measured with the clean validation-fitted threshold held fixed,
+so performance drops reflect the representation's separation capacity rather than threshold
+recalibration.
+
+For each encoder and for every combination of change magnitude and change area, the benchmark
+reports threshold-free AP/AUROC plus F1/IoU at the frozen clean threshold. The result is an
+operating-characteristic-style table (`reports/frontier.md`), a machine-readable CSV, and an
+AP-vs-magnitude curve per area fraction for each encoder (`reports/figures/frontier_*.png`).
+
+```bash
+uv run fmcd frontier --config configs/detectability.yaml --data-root /path/to/LEVIR-CD
+```
+
 ## Reproduction
 
 Python 3.11 and [`uv`](https://docs.astral.sh/uv/) are recommended.
@@ -136,6 +154,8 @@ validation, resumable selection, selection verification, and the frozen test run
 - validation-only Otsu and max-F1 threshold fitting;
 - pixel-level precision, recall, F1, IoU, balanced accuracy, AUROC, and average precision;
 - T2-only nuisance perturbations with frozen clean thresholds;
+- controlled synthetic changes (region sampling + additive offsets) with frozen clean
+  thresholds for detectability-frontier analysis;
 - CPU unit and synthetic end-to-end tests.
 
 ## Limitations
