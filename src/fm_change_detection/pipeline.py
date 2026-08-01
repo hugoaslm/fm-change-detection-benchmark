@@ -55,6 +55,17 @@ def _log(msg: str) -> None:
             f.write(msg + "\n")
 
 
+def _rss_mb() -> int:
+    try:
+        with open("/proc/self/status", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("VmRSS"):
+                    return int(line.split()[1]) // 1024
+    except OSError:
+        pass
+    return -1
+
+
 def resolve_device(requested: str) -> torch.device:
     if requested == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -114,24 +125,30 @@ def _preload_features_batched(
     cache: FeatureCache,
     config: BenchmarkConfig,
     device: torch.device,
-) -> list[tuple[Tensor, Tensor]]:
+    return_features: bool = True,
+) -> list[tuple[Tensor, Tensor]] | None:
     batch_size = config.runtime.frontier_batch_size
-    features: list[tuple[Tensor, Tensor] | None] = [None] * len(samples)
+    features: list[tuple[Tensor, Tensor] | None] | None = (
+        [None] * len(samples) if return_features else None
+    )
     pending_indices: list[int] = []
     for i, sample in enumerate(samples):
         sample_key = f"{split}__{sample['sample_id']}"
         t1_key, t2_key = f"{sample_key}__t1", f"{sample_key}__t2"
-        if cache.is_cached(t1_key, layer_name) and cache.is_cached(t2_key, layer_name):
+        is_cached = cache.is_cached(t1_key, layer_name) and cache.is_cached(t2_key, layer_name)
+        if is_cached and return_features:
             features[i] = (
                 cache.get(t1_key, layer_name).float(),
                 cache.get(t2_key, layer_name).float(),
             )
-        else:
+        elif not is_cached:
             pending_indices.append(i)
 
     if not pending_indices:
         _log(f"[FRONTIER]   preload {split}: all {len(samples)} samples from cache")
-        return [features[i] for i in range(len(samples))]
+        if features is not None:
+            return [features[i] for i in range(len(samples))]
+        return None
 
     _log(
         f"[FRONTIER]   preload {split}: encoding {len(pending_indices)}/{len(samples)} samples "
@@ -159,10 +176,11 @@ def _preload_features_batched(
                 {ln: f2_all[ln][j] for ln in f2_all},
                 dtype=config.runtime.cache_dtype,
             )
-            features[idx_chunk[j]] = (
-                f1_all[layer_name][j].detach().cpu().float(),
-                f2_all[layer_name][j].detach().cpu().float(),
-            )
+            if features is not None:
+                features[idx_chunk[j]] = (
+                    f1_all[layer_name][j].detach().cpu().float(),
+                    f2_all[layer_name][j].detach().cpu().float(),
+                )
         encoded += len(idx_chunk)
         rate = encoded / max(time.time() - t0, 1e-6)
         _log(
@@ -170,6 +188,8 @@ def _preload_features_batched(
             f"({time.time() - t0:.0f}s, {rate:.0f} samples/s)"
         )
 
+    if features is None:
+        return None
     result: list[tuple[Tensor, Tensor]] = []
     for item in features:
         if item is None:
@@ -579,7 +599,8 @@ def run_detectability(config: BenchmarkConfig) -> dict:
     _log(
         f"[FRONTIER] device={device} encoders={[e.name for e in config.encoders]} "
         f"val={len(val_samples)} test={len(test_samples)} areas={synth.area_fractions} "
-        f"magnitudes={synth.magnitudes} batch_size={config.runtime.frontier_batch_size}"
+        f"magnitudes={synth.magnitudes} batch_size={config.runtime.frontier_batch_size} "
+        f"rss={_rss_mb()}MB"
     )
 
     frontier_records = []
@@ -619,14 +640,12 @@ def run_detectability(config: BenchmarkConfig) -> dict:
         val_mask_stacked = torch.stack(val_masks)
         calib_th = fit_calibrated_f1_threshold(val_stacked, val_mask_stacked)
         otsu_th = compute_otsu_threshold(val_stacked)
+        del val_features, val_stacked, val_mask_stacked, val_scores, val_masks
 
-        test_features = _preload_features_batched(
-            test_samples, "test", layer, encoder, cache, config, device
+        _preload_features_batched(
+            test_samples, "test", layer, encoder, cache, config, device, return_features=False
         )
-        test_t1_by_id = {
-            sample["sample_id"]: t1_layer
-            for sample, (t1_layer, _t2) in zip(test_samples, test_features)
-        }
+        _log(f"[FRONTIER]   rss={_rss_mb()}MB after test preload")
 
         for area in synth.area_fractions:
             region_seed = (hash((synth.seed, area)) % (2**31)) & 0x7FFFFFFF
@@ -640,8 +659,6 @@ def run_detectability(config: BenchmarkConfig) -> dict:
                 _log(f"[FRONTIER] No usable no-change region for {enc_name} area={area}; skipping")
                 continue
 
-            t1_features = [test_t1_by_id[sample["sample_id"]] for sample, _region in usable]
-
             batch_size = config.runtime.frontier_batch_size
             for mag in synth.magnitudes:
                 scores, masks = [], []
@@ -649,7 +666,10 @@ def run_detectability(config: BenchmarkConfig) -> dict:
                 for start in range(0, len(usable), batch_size):
                     chunk = usable[start : start + batch_size]
                     t1_batch = torch.stack(
-                        [t1_features[i] for i in range(start, start + len(chunk))]
+                        [
+                            cache.get(f"test__{sample['sample_id']}__t1", layer).float()
+                            for sample, _region in chunk
+                        ]
                     )
                     t2_batch = torch.stack(
                         [
