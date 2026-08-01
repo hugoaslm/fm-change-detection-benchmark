@@ -1,5 +1,3 @@
-"""Tests for dataset loading, validation, tiling, and mask properties."""
-
 import pytest
 import torch
 

@@ -1,5 +1,3 @@
-"""Pytest fixtures for fm_change_detection test suite."""
-
 import tempfile
 from pathlib import Path
 
@@ -26,10 +24,9 @@ def synthetic_dataset_dir(tmp_dir):
 
 @pytest.fixture
 def dummy_image_pair():
-    # [1, 3, 64, 64] float tensors in [0, 1]
     t1 = torch.rand(1, 3, 64, 64, dtype=torch.float32)
     t2 = t1.clone()
-    # Add synthetic change patch to t2
+
     t2[:, :, 16:32, 16:32] += 0.5
     t2 = torch.clamp(t2, 0.0, 1.0)
     return t1, t2

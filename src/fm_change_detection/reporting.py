@@ -1,5 +1,3 @@
-"""Evaluation result recording and markdown report generation."""
-
 import csv
 import json
 import subprocess
@@ -12,7 +10,6 @@ from fm_change_detection.metrics import MetricResults
 
 
 def get_git_commit() -> str:
-    """Retrieve short git commit hash or 'dirty'/'unknown'."""
     try:
         res = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -32,7 +29,6 @@ def get_git_commit() -> str:
 
 
 def get_peak_gpu_memory() -> float:
-    """Get peak GPU memory allocation in MB if CUDA is available."""
     if torch.cuda.is_available():
         return torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)
     return 0.0
@@ -53,7 +49,6 @@ def save_result_record(
     runtime_seconds: float,
     additional_fields: dict[str, Any] | None = None,
 ) -> Path:
-    """Save evaluation metrics atomically as JSON and append to CSV."""
     out_dir = Path(results_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -92,14 +87,12 @@ def save_result_record(
     if additional_fields:
         record.update(additional_fields)
 
-    # Save JSON atomically
     json_path = out_dir / f"{run_id}.json"
     tmp_json = out_dir / f"{run_id}.json.tmp"
     with open(tmp_json, "w", encoding="utf-8") as f:
         json.dump(record, f, indent=2)
     tmp_json.replace(json_path)
 
-    # Append to summary CSV atomically
     csv_path = out_dir / "summary.csv"
     file_exists = csv_path.exists()
 
@@ -133,7 +126,6 @@ def save_result_record(
 
     tmp_csv = out_dir / "summary.csv.tmp"
     if file_exists:
-        # Read existing rows and append
         rows = []
         with open(csv_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -160,14 +152,6 @@ def generate_frontier_report(
     report_path: str | Path,
     figures_dir: str | Path | None = None,
 ) -> None:
-    """Write a detectability-frontier CSV, markdown report, and per-encoder plots.
-
-    Args:
-        records: Per (encoder, magnitude, area fraction) frontier rows.
-        results_dir: Directory for the machine-readable frontier CSV.
-        report_path: Markdown report output path.
-        figures_dir: Optional directory for AP-vs-magnitude frontier plots.
-    """
     res_dir = Path(results_dir)
     res_dir.mkdir(parents=True, exist_ok=True)
 
@@ -227,7 +211,6 @@ def generate_frontier_report(
 
 
 def _save_frontier_plot(records: list[dict[str, Any]], output_path: Path) -> None:
-    """Plot AP vs magnitude with one line per area fraction."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -257,7 +240,6 @@ def _save_frontier_plot(records: list[dict[str, Any]], output_path: Path) -> Non
 
 
 def generate_benchmark_report(results_dir: str | Path, output_file: str | Path) -> None:
-    """Generate Markdown benchmark report from saved result JSON records."""
     res_dir = Path(results_dir)
     records = []
 

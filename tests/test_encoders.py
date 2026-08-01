@@ -1,5 +1,3 @@
-"""Tests for encoder wrappers, shape validation, and parameter freezing."""
-
 import torch
 
 from fm_change_detection.encoders import get_encoder, registry
@@ -18,7 +16,6 @@ def test_rgb_pixels_encoder():
 def test_mock_encoder_shape_and_freezing():
     encoder = MockEncoder(layers=("layer1", "layer2"))
 
-    # Test freezing
     for p in encoder.parameters():
         assert not p.requires_grad
 
@@ -43,7 +40,7 @@ def test_resnet50_imagenet_encoder():
 
 def test_dinov2_token_to_spatial_grid_conversion():
     encoder = get_encoder("dinov2_vits14", layers=("block3",))
-    # Input must be divisible by patch_size=14 (e.g. 14*2 = 28 or 14*4 = 56)
+
     x = torch.rand(1, 3, 28, 28)
     feats = encoder.encode(x)
 
@@ -51,7 +48,7 @@ def test_dinov2_token_to_spatial_grid_conversion():
     fmap = feats["block3"]
     assert fmap.ndim == 4
     assert fmap.shape[0] == 1
-    # 28 // 14 = 2, so spatial grid is 2x2
+
     assert fmap.shape[2:] == (2, 2)
 
 

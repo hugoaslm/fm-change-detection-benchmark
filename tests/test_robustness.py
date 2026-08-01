@@ -1,5 +1,3 @@
-"""Tests for deterministic, border-safe T2 robustness perturbations."""
-
 import torch
 
 from fm_change_detection.robustness import (

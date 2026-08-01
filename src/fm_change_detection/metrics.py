@@ -1,5 +1,3 @@
-"""Metrics evaluation (AP, AUROC, IoU, F1, FPR, etc.) and cluster bootstrap CIs."""
-
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -25,7 +23,7 @@ class MetricResults:
     threshold: float
     num_pixels: int
     num_images: int
-    # Optional bootstrap confidence intervals
+
     ci_95: dict[str, tuple[float, float]] | None = None
 
 
@@ -34,16 +32,6 @@ def compute_binary_metrics(
     masks: list[Tensor] | Tensor | np.ndarray,
     threshold: float,
 ) -> MetricResults:
-    """Compute all evaluation metrics given continuous score maps and ground-truth masks.
-
-    Args:
-        score_maps: Continuous anomaly scores (list of 2D tensors, 3D/4D tensor, or numpy array).
-        masks: Binary change ground-truth masks.
-        threshold: Decision threshold for binarization.
-
-    Returns:
-        MetricResults dataclass with point estimates.
-    """
     if isinstance(score_maps, list):
         scores_arr = np.concatenate(
             [
@@ -93,8 +81,6 @@ def compute_binary_metrics(
             num_images=num_images,
         )
 
-    # Threshold-free metrics
-    # Handle single-class edge cases gracefully
     if len(np.unique(y_true)) < 2:
         ap = 1.0 if np.all(y_true) else 0.0
         auroc = 0.5
@@ -102,7 +88,6 @@ def compute_binary_metrics(
         ap = float(average_precision_score(y_true, y_score))
         auroc = float(roc_auc_score(y_true, y_score))
 
-    # Binary prediction at threshold
     y_pred = y_score >= threshold
 
     tp = np.sum(y_pred & y_true)
@@ -142,20 +127,6 @@ def compute_cluster_bootstrap_ci(
     confidence_level: float = 0.95,
     seed: int = 42,
 ) -> dict[str, tuple[float, float]]:
-    """Compute cluster bootstrap confidence intervals by resampling scene IDs.
-
-    Args:
-        sample_scores: List of score map tensors/arrays per image sample.
-        sample_masks: List of ground-truth mask tensors/arrays per image sample.
-        scene_ids: Scene ID associated with each image sample.
-        threshold: Fixed decision threshold.
-        num_resamples: Number of bootstrap iterations.
-        confidence_level: Desired confidence level (e.g. 0.95).
-        seed: Random seed.
-
-    Returns:
-        Dictionary mapping metric_name -> (ci_lower, ci_upper).
-    """
     rng = np.random.default_rng(seed)
     unique_scenes = np.unique(scene_ids)
     num_scenes = len(unique_scenes)
@@ -163,7 +134,6 @@ def compute_cluster_bootstrap_ci(
     if num_scenes == 0:
         return {}
 
-    # Map scene_id -> list of sample indices
     scene_to_indices: dict[str, list[int]] = {s: [] for s in unique_scenes}
     for idx, s_id in enumerate(scene_ids):
         scene_to_indices[s_id].append(idx)

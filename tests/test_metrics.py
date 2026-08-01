@@ -1,5 +1,3 @@
-"""Tests for binary metrics, confusion matrix properties, and cluster bootstrap CIs."""
-
 import numpy as np
 import pytest
 
@@ -10,19 +8,17 @@ from fm_change_detection.metrics import (
 
 
 def test_known_confusion_matrix():
-    # Handcrafted 2x2 masks
-    # TP=1, FP=1, TN=1, FN=1
     scores = np.array([0.9, 0.8, 0.2, 0.1])
     masks = np.array([True, False, True, False])
     threshold = 0.5
 
     res = compute_binary_metrics(scores, masks, threshold)
 
-    assert res.precision == pytest.approx(0.5)  # TP/(TP+FP) = 1/2
-    assert res.recall == pytest.approx(0.5)  # TP/(TP+FN) = 1/2
+    assert res.precision == pytest.approx(0.5)
+    assert res.recall == pytest.approx(0.5)
     assert res.f1 == pytest.approx(0.5)
-    assert res.iou == pytest.approx(1.0 / 3.0)  # TP/(TP+FP+FN) = 1/3
-    assert res.false_positive_rate == pytest.approx(0.5)  # FP/(FP+TN) = 1/2
+    assert res.iou == pytest.approx(1.0 / 3.0)
+    assert res.false_positive_rate == pytest.approx(0.5)
 
 
 def test_cluster_bootstrap_ci():

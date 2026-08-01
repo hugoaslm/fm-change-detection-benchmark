@@ -1,5 +1,3 @@
-"""Configuration management for fm_change_detection benchmark."""
-
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -51,8 +49,6 @@ class PerturbationConfig:
 
 @dataclass
 class SyntheticChangeConfig:
-    """Controlled synthetic change grid for detectability-frontier runs."""
-
     magnitudes: list[float] = field(default_factory=lambda: [0.05, 0.10, 0.20, 0.40])
     area_fractions: list[float] = field(default_factory=lambda: [0.01, 0.04, 0.16])
     seed: int = 7
@@ -60,8 +56,6 @@ class SyntheticChangeConfig:
 
 @dataclass
 class RuntimeConfig:
-    """Execution controls shared by local and notebook runs."""
-
     device: str = "auto"
     max_train_samples: int | None = None
     max_val_samples: int | None = None
@@ -86,7 +80,6 @@ class BenchmarkConfig:
 
 
 def load_config(config_path: str | Path) -> BenchmarkConfig:
-    """Load configuration from YAML file."""
     path = Path(config_path)
     if not path.exists():
         raise FileNotFoundError(f"Configuration file not found at {path}")

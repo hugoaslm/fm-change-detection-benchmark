@@ -1,5 +1,3 @@
-"""Validation-only layer and anomaly-score selection."""
-
 import csv
 import json
 import time
@@ -200,9 +198,6 @@ def _build_final_config(config: BenchmarkConfig, winners: list[dict[str, Any]]) 
         "scoring": {"methods": ["cosine", "standardized_euclidean"]},
         "thresholds": {"methods": ["unlabeled", "calibrated"]},
         "bootstrap": {
-            # The exact pixel-level cluster bootstrap is intentionally disabled
-            # for the full test set. A scalable bootstrap is added after the
-            # selected configuration is frozen.
             "num_resamples": 0,
             "confidence_level": 0.95,
             "seed": config.bootstrap.seed,
@@ -220,7 +215,6 @@ def _build_final_config(config: BenchmarkConfig, winners: list[dict[str, Any]]) 
 
 
 def run_validation_selection(config: BenchmarkConfig) -> dict[str, Any]:
-    """Select one layer and score per encoder without opening the test split."""
     root = config.dataset.root
     accessed_splits = ("train", "val")
     validate_dataset_layout(root, splits=accessed_splits)

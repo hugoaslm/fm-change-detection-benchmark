@@ -1,5 +1,3 @@
-"""Tests for controlled synthetic change synthesis."""
-
 import numpy as np
 import torch
 
@@ -28,7 +26,7 @@ def test_apply_additive_change_clamps_to_unit_range():
 
 def test_pick_change_region_respects_area_and_avoids_real_change():
     mask = torch.zeros(64, 64, dtype=torch.bool)
-    mask[48:64, 48:64] = True  # real change in the bottom-right corner
+    mask[48:64, 48:64] = True
     rng = np.random.default_rng(42)
     region = pick_change_region(mask, area_fraction=0.09, rng=rng)
     assert region is not None

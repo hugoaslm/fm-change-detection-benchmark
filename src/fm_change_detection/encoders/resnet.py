@@ -1,5 +1,3 @@
-"""ResNet feature encoders and RGB baseline."""
-
 import torch
 from torch import Tensor, nn
 from torch.hub import load_state_dict_from_url
@@ -13,8 +11,6 @@ from fm_change_detection.encoders.base import (
 
 
 class ResNet50Encoder(nn.Module):
-    """ResNet-50 feature extractor using torchvision feature extraction API."""
-
     def __init__(
         self,
         name: str = "resnet50_imagenet",
@@ -81,7 +77,6 @@ class ResNet50Encoder(nn.Module):
 
     @torch.no_grad()
     def encode(self, images: Tensor) -> dict[str, Tensor]:
-        """Preprocess images and extract spatial feature maps."""
         self.eval()
         mean = self.mean.to(device=images.device, dtype=images.dtype)
         std = self.std.to(device=images.device, dtype=images.dtype)

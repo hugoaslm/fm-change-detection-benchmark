@@ -1,5 +1,3 @@
-"""Dataset loading, validation, and synthetic generation for LEVIR-CD."""
-
 import hashlib
 from pathlib import Path
 from typing import TypedDict
@@ -14,15 +12,14 @@ from torch.utils.data import Dataset
 class ChangeSample(TypedDict):
     sample_id: str
     scene_id: str
-    image_t1: Tensor  # [3, H, W], float32 in [0, 1]
-    image_t2: Tensor  # [3, H, W], float32 in [0, 1]
-    change_mask: Tensor  # [H, W], bool
+    image_t1: Tensor
+    image_t2: Tensor
+    change_mask: Tensor
 
 
 def extract_scene_id(sample_id: str) -> str:
-    """Extract scene_id from sample_id for scene-level cluster bootstrapping."""
     base = Path(sample_id).stem
-    # Handle LEVIR-CD naming formats (e.g., scene_001_tile_01 or levir_001_x_y or train_1_0_0)
+
     parts = base.split("_")
     if len(parts) >= 2 and parts[0] in ("scene", "levir", "train", "val", "test", "build"):
         return f"{parts[0]}_{parts[1]}"
@@ -30,8 +27,6 @@ def extract_scene_id(sample_id: str) -> str:
 
 
 class LEVIRCDDataset(Dataset):
-    """Dataset loader for LEVIR-CD change detection dataset."""
-
     def __init__(
         self,
         root: str | Path,
@@ -67,7 +62,6 @@ class LEVIRCDDataset(Dataset):
         path_label = self.dir_label / filename
 
         if not path_a.exists():
-            # Try appending .png if extension missing in list
             path_a = self.dir_a / f"{stem}.png"
             path_b = self.dir_b / f"{stem}.png"
             path_label = self.dir_label / f"{stem}.png"
@@ -84,15 +78,13 @@ class LEVIRCDDataset(Dataset):
                 f"Unaligned sample '{filename}': A={img_a.size}, B={img_b.size}, label={label.size}"
             )
 
-        # Convert images to tensors [3, H, W] in [0, 1]
         arr_a = np.array(img_a, dtype=np.float32) / 255.0
         arr_b = np.array(img_b, dtype=np.float32) / 255.0
         t1 = torch.from_numpy(arr_a).permute(2, 0, 1)
         t2 = torch.from_numpy(arr_b).permute(2, 0, 1)
 
-        # Convert label to bool mask [H, W]
         arr_label = np.array(label, dtype=np.uint8)
-        mask = torch.from_numpy(arr_label > 127)  # True for change
+        mask = torch.from_numpy(arr_label > 127)
 
         scene_id = extract_scene_id(stem)
 
@@ -108,7 +100,6 @@ class LEVIRCDDataset(Dataset):
 def validate_dataset_layout(
     root: str | Path, splits: tuple[str, ...] = ("train", "val", "test")
 ) -> dict[str, int]:
-    """Validate LEVIR-CD directory layout and return sample counts per split."""
     path = Path(root)
     required_dirs = [path / "A", path / "B", path / "label", path / "list"]
     for d in required_dirs:
@@ -159,7 +150,6 @@ def validate_dataset_layout(
 def compute_dataset_manifest_hash(
     root: str | Path, splits: tuple[str, ...] = ("train", "val", "test")
 ) -> str:
-    """Hash split manifests and referenced relative names without reading image bytes."""
     path = Path(root)
     digest = hashlib.sha256()
     for split in splits:
@@ -176,7 +166,6 @@ def generate_synthetic_dataset(
     image_size: int = 256,
     seed: int = 42,
 ) -> Path:
-    """Generate synthetic LEVIR-CD dataset for smoke testing."""
     rng = np.random.default_rng(seed)
     root = Path(output_root)
 
@@ -200,13 +189,11 @@ def generate_synthetic_dataset(
             filename = f"{scene_id}_tile_{t_idx:02d}.png"
             sample_counter += 1
 
-            # Generate synthetic background and change patch
             img_a_arr = rng.integers(50, 200, size=(image_size, image_size, 3), dtype=np.uint8)
             img_b_arr = img_a_arr.copy()
 
             label_arr = np.zeros((image_size, image_size), dtype=np.uint8)
 
-            # 50% of tiles contain change
             if sample_counter % 2 == 1:
                 cx, cy = image_size // 4, image_size // 4
                 rw, rh = image_size // 2, image_size // 2

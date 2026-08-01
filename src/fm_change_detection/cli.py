@@ -1,5 +1,3 @@
-"""Command-Line Interface (CLI) for fm_change_detection."""
-
 import argparse
 import sys
 
@@ -36,20 +34,17 @@ def _apply_runtime_overrides(cfg, args) -> None:
 
 
 def main() -> None:
-    """CLI entrypoint for fmcd tool."""
     parser = argparse.ArgumentParser(
         prog="fmcd",
         description="Foundation Model Change Detection Benchmark CLI (v0.1)",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # 1. smoke
     parser_smoke = subparsers.add_parser("smoke", help="Run CPU synthetic end-to-end smoke test")
     parser_smoke.add_argument(
         "--config", default="configs/smoke.yaml", help="Path to smoke config YAML"
     )
 
-    # 2. validate-data
     parser_valdata = subparsers.add_parser(
         "validate-data", help="Validate LEVIR-CD directory layout and split lists"
     )
@@ -57,7 +52,6 @@ def main() -> None:
         "--root", default="data/raw/LEVIR-CD", help="Path to LEVIR-CD root directory"
     )
 
-    # 3. extract
     parser_extract = subparsers.add_parser(
         "extract", help="Pre-extract and cache features for an encoder"
     )
@@ -69,7 +63,6 @@ def main() -> None:
     )
     _add_runtime_arguments(parser_extract)
 
-    # 4. evaluate
     parser_eval = subparsers.add_parser(
         "evaluate", help="Evaluate single encoder, layer, and score method"
     )
@@ -83,7 +76,6 @@ def main() -> None:
     )
     _add_runtime_arguments(parser_eval)
 
-    # 5. benchmark
     parser_select = subparsers.add_parser(
         "select",
         help="Select one layer and score per encoder using train/validation data only",
@@ -93,7 +85,6 @@ def main() -> None:
     )
     _add_runtime_arguments(parser_select)
 
-    # 6. benchmark
     parser_bench = subparsers.add_parser(
         "benchmark", help="Run full benchmark across all configured encoders/layers"
     )
@@ -102,14 +93,12 @@ def main() -> None:
     )
     _add_runtime_arguments(parser_bench)
 
-    # 7. robustness
     parser_rob = subparsers.add_parser("robustness", help="Run robustness perturbation experiments")
     parser_rob.add_argument(
         "--config", default="configs/robustness.yaml", help="Path to robustness config YAML"
     )
     _add_runtime_arguments(parser_rob)
 
-    # 8. report
     parser_report = subparsers.add_parser("report", help="Generate Markdown benchmark report")
     parser_report.add_argument(
         "--results", default="outputs/results", help="Directory containing result JSON files"
@@ -118,7 +107,6 @@ def main() -> None:
         "--output", default="reports/benchmark.md", help="Output markdown report file"
     )
 
-    # 9. frontier
     parser_frontier = subparsers.add_parser(
         "frontier",
         help="Run controlled-change detectability frontier on frozen test tiles",
@@ -148,7 +136,7 @@ def main() -> None:
         cfg = load_config(args.config)
         _apply_runtime_overrides(cfg, args)
         print(f"[EXTRACT] Extracting features for encoder '{args.encoder}'...")
-        # A cached evaluation warms validation/test features for the selected layer.
+
         enc_cfg = next((e for e in cfg.encoders if e.name == args.encoder), None)
         layer = enc_cfg.layers[0] if enc_cfg and enc_cfg.layers else "layer4"
         run_single_evaluation(cfg, args.encoder, layer_name=layer, score_method="cosine")

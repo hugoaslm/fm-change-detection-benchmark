@@ -1,5 +1,3 @@
-"""Pipeline runners for smoke, single evaluation, full benchmark, and robustness."""
-
 import random
 import time
 import uuid
@@ -49,7 +47,6 @@ from fm_change_detection.thresholds import (
 
 
 def resolve_device(requested: str) -> torch.device:
-    """Resolve an explicit or automatic execution device."""
     if requested == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = torch.device(requested)
@@ -59,7 +56,6 @@ def resolve_device(requested: str) -> torch.device:
 
 
 def _iter_limited(dataset: LEVIRCDDataset, limit: int | None, seed: int) -> Iterator[ChangeSample]:
-    """Iterate a deterministic random subset without loading the full dataset."""
     indices = list(range(len(dataset)))
     if limit is not None and limit < len(indices):
         indices = sorted(random.Random(seed).sample(indices, limit))
@@ -85,7 +81,6 @@ def _get_cached_pair(
     config: BenchmarkConfig,
     device: torch.device,
 ) -> tuple[Tensor, Tensor]:
-    """Load a feature pair or extract and atomically cache it."""
     sample_key = f"{split}__{sample['sample_id']}"
     t1_key, t2_key = f"{sample_key}__t1", f"{sample_key}__t2"
     cached_t1 = cache.get(t1_key, layer_name)
@@ -96,21 +91,13 @@ def _get_cached_pair(
     t1 = sample["image_t1"].unsqueeze(0).to(device)
     t2 = sample["image_t2"].unsqueeze(0).to(device)
     f1, f2 = extract_pair_features(encoder, t1, t2, input_size=config.dataset.input_size)
-    # When an encoder exposes several layers, save all of them from this one
-    # forward pass. Validation selection can then compare layers without
-    # repeatedly running the same frozen model.
+
     cache.save_sample_features(t1_key, f1, dtype=config.runtime.cache_dtype)
     cache.save_sample_features(t2_key, f2, dtype=config.runtime.cache_dtype)
     return f1[layer_name].detach().cpu().float(), f2[layer_name].detach().cpu().float()
 
 
 def run_smoke_test(config: BenchmarkConfig) -> dict:
-    """Run fast CPU synthetic smoke test pipeline.
-
-    - Generates synthetic LEVIR-CD dataset.
-    - Uses MockEncoder.
-    - Computes feature scores, thresholds, metrics, and saves results.
-    """
     print("[SMOKE] Generating synthetic dataset...")
     syn_root = generate_synthetic_dataset(
         output_root=config.dataset.root,
@@ -195,7 +182,6 @@ def run_single_evaluation(
     layer_name: str,
     score_method: str = "cosine",
 ) -> dict:
-    """Run evaluation for a single encoder, layer, and score method on LEVIR-CD."""
     print(f"[EVAL] Evaluating encoder={encoder_name}, layer={layer_name}, score={score_method}...")
     dataset_root = config.dataset.root
     validate_dataset_layout(dataset_root)
@@ -240,7 +226,6 @@ def run_single_evaluation(
         }
     )
 
-    # Standardized Euclidean requires channel variance from train set
     channel_std = None
     if score_method == "standardized_euclidean":
         print("[EVAL] Fitting training channel statistics for Standardized Euclidean...")
@@ -258,7 +243,6 @@ def run_single_evaluation(
 
     t0 = time.time()
 
-    # Extract or load validation scores
     val_scores, val_masks = [], []
     for sample in _iter_limited(val_ds, config.runtime.max_val_samples, config.dataset.seed + 1):
         f1_layer, f2_layer = _get_cached_pair(
@@ -280,7 +264,6 @@ def run_single_evaluation(
     otsu_th = compute_otsu_threshold(val_scores_t)
     calib_th = fit_calibrated_f1_threshold(val_scores_t, val_masks_t)
 
-    # Evaluate test split
     test_scores, test_masks, test_scenes = [], [], []
     for sample in _iter_limited(test_ds, config.runtime.max_test_samples, config.dataset.seed + 2):
         f1_layer, f2_layer = _get_cached_pair(
@@ -349,7 +332,6 @@ def run_single_evaluation(
 
 
 def run_benchmark(config: BenchmarkConfig) -> list[dict]:
-    """Run full benchmark matrix across all encoders, layers, scoring methods."""
     results = []
     for enc in config.encoders:
         for layer in enc.layers:
@@ -362,7 +344,6 @@ def run_benchmark(config: BenchmarkConfig) -> list[dict]:
 
 
 def run_robustness(config: BenchmarkConfig) -> list[dict]:
-    """Run robustness experiment with perturbed T2 images reusing clean validation thresholds."""
     print("[ROBUSTNESS] Running robustness evaluation...")
     dataset_root = config.dataset.root
     validate_dataset_layout(dataset_root)
@@ -393,7 +374,6 @@ def run_robustness(config: BenchmarkConfig) -> list[dict]:
         )
         cache = FeatureCache(config.cache_dir, config.dataset.name, cfg_hash)
 
-        # 1. Fit clean validation threshold
         val_scores, val_masks = [], []
         for sample in _iter_limited(
             val_ds, config.runtime.max_val_samples, config.dataset.seed + 1
@@ -408,7 +388,6 @@ def run_robustness(config: BenchmarkConfig) -> list[dict]:
 
         clean_th = fit_calibrated_f1_threshold(torch.stack(val_scores), torch.stack(val_masks))
 
-        # 2. Evaluate clean test baseline
         clean_scores, test_masks, test_scenes = [], [], []
         test_samples = list(
             _iter_limited(test_ds, config.runtime.max_test_samples, config.dataset.seed + 2)
@@ -425,7 +404,6 @@ def run_robustness(config: BenchmarkConfig) -> list[dict]:
 
         clean_metrics = compute_binary_metrics(clean_scores, test_masks, clean_th)
 
-        # 3. Evaluate perturbations on T2 with frozen clean threshold
         for pert_cfg in config.perturbations:
             for val in pert_cfg.values:
                 p_scores = []
@@ -491,14 +469,6 @@ def run_robustness(config: BenchmarkConfig) -> list[dict]:
 
 
 def run_detectability(config: BenchmarkConfig) -> dict:
-    """Map the controlled-change detectability frontier on frozen test tiles.
-
-    Synthetic additive changes of known magnitude and area are injected into
-    no-change regions of the T2 timestamp. Detection metrics are measured with
-    the clean validation-fitted thresholds held fixed, so a drop in performance
-    reflects the representation's ability to separate ever smaller or fainter
-    changes rather than threshold recalibration.
-    """
     print("[FRONTIER] Running controlled-change detectability frontier...")
     dataset_root = config.dataset.root
     validate_dataset_layout(dataset_root)
@@ -536,7 +506,6 @@ def run_detectability(config: BenchmarkConfig) -> dict:
         )
         cache = FeatureCache(config.cache_dir, config.dataset.name, cfg_hash)
 
-        # 1. Fit clean validation thresholds (never on test labels).
         val_scores, val_masks = [], []
         for sample in _iter_limited(
             val_ds, config.runtime.max_val_samples, config.dataset.seed + 1
@@ -554,8 +523,6 @@ def run_detectability(config: BenchmarkConfig) -> dict:
         calib_th = fit_calibrated_f1_threshold(val_stacked, val_mask_stacked)
         otsu_th = compute_otsu_threshold(val_stacked)
 
-        # 2. Precompute one deterministic change region per sample and area, then
-        #    sweep magnitude on that same region so intensity is the only variable.
         for area in synth.area_fractions:
             region_seed = (hash((synth.seed, area)) % (2**31)) & 0x7FFFFFFF
             usable = []

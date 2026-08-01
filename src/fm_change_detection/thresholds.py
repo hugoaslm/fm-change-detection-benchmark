@@ -1,25 +1,13 @@
-"""Threshold estimation methods (Otsu unlabeled and Validation F1 calibration)."""
-
 import numpy as np
 from torch import Tensor
 
 
 def compute_otsu_threshold(score_maps: Tensor | np.ndarray, num_bins: int = 256) -> float:
-    """Compute global Otsu threshold from score maps without labels.
-
-    Args:
-        score_maps: Tensor or array of continuous anomaly scores.
-        num_bins: Number of histogram bins.
-
-    Returns:
-        Optimal Otsu threshold float value.
-    """
     if isinstance(score_maps, Tensor):
         scores = score_maps.detach().cpu().numpy().ravel()
     else:
         scores = score_maps.ravel()
 
-    # Filter out NaNs or Inf if any
     valid_scores = scores[np.isfinite(scores)]
     if len(valid_scores) == 0:
         return 0.5
@@ -50,16 +38,6 @@ def fit_calibrated_f1_threshold(
     masks: Tensor | np.ndarray,
     num_candidates: int = 512,
 ) -> float:
-    """Find global threshold maximizing F1 score on validation set with ground-truth masks.
-
-    Args:
-        score_maps: Continuous anomaly scores.
-        masks: Ground truth binary change masks (bool or 0/1).
-        num_candidates: Number of candidate thresholds to search.
-
-    Returns:
-        Threshold float maximizing F1.
-    """
     if isinstance(score_maps, Tensor):
         scores = score_maps.detach().cpu().numpy().ravel()
     else:
@@ -85,7 +63,6 @@ def fit_calibrated_f1_threshold(
     best_f1 = -1.0
     best_thresh = float(thresholds[0])
 
-    # Vectorized / efficient search
     total_positives = np.sum(targets)
     if total_positives == 0:
         return float(min_s + (max_s - min_s) * 0.5)

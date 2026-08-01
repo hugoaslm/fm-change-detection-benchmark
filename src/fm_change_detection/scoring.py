@@ -1,27 +1,15 @@
-"""Change scoring metrics (Cosine and Standardized Euclidean)."""
-
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
 
 def cosine_score(t1: Tensor, t2: Tensor, eps: float = 1e-8) -> Tensor:
-    """Compute cosine distance map between feature tensors t1 and t2.
-
-    Args:
-        t1: Tensor [B, C, h, w]
-        t2: Tensor [B, C, h, w]
-
-    Returns:
-        Tensor [B, h, w] of cosine distance in range [0, 2].
-    """
     norm1 = torch.linalg.vector_norm(t1, dim=1)
     norm2 = torch.linalg.vector_norm(t2, dim=1)
     normalized1 = F.normalize(t1, dim=1, eps=eps)
     normalized2 = F.normalize(t2, dim=1, eps=eps)
     score = 1.0 - (normalized1 * normalized2).sum(dim=1)
-    # Two absent/zero feature vectors are identical, not anomalous. A single
-    # absent vector remains maximally uninformative with cosine distance 1.
+
     both_zero = (norm1 <= eps) & (norm2 <= eps)
     return torch.where(both_zero, torch.zeros_like(score), score.clamp(0.0, 2.0))
 
@@ -29,16 +17,6 @@ def cosine_score(t1: Tensor, t2: Tensor, eps: float = 1e-8) -> Tensor:
 def standardized_euclidean_score(
     t1: Tensor, t2: Tensor, channel_std: Tensor, eps: float = 1e-6
 ) -> Tensor:
-    """Compute standardized Euclidean distance map.
-
-    Args:
-        t1: Tensor [B, C, h, w]
-        t2: Tensor [B, C, h, w]
-        channel_std: Tensor [C] or [1, C, 1, 1] fitted on training features without labels.
-
-    Returns:
-        Tensor [B, h, w] of standardized Euclidean distances.
-    """
     if channel_std.ndim == 1:
         std = channel_std.view(1, -1, 1, 1).to(device=t1.device, dtype=t1.dtype)
     else:
@@ -49,9 +27,7 @@ def standardized_euclidean_score(
 
 
 def upsample_score_map(score_map: Tensor, target_size: tuple[int, int] = (256, 256)) -> Tensor:
-    """Bilinear interpolation of score map [B, h, w] to target size [B, H, W] with align_corners=False."""
     if score_map.ndim == 3:
-        # [B, h, w] -> [B, 1, h, w]
         score_4d = score_map.unsqueeze(1)
         upsampled = F.interpolate(score_4d, size=target_size, mode="bilinear", align_corners=False)
         return upsampled.squeeze(1)
@@ -62,16 +38,12 @@ def upsample_score_map(score_map: Tensor, target_size: tuple[int, int] = (256, 2
 
 
 class FeatureStatsTracker:
-    """Streaming online calculator for feature channel variance fitted on training features without labels."""
-
     def __init__(self) -> None:
         self.count = 0
         self.mean: Tensor | None = None
         self.M2: Tensor | None = None
 
     def update(self, features: Tensor) -> None:
-        """Update running stats with batch features [B, C, h, w]."""
-        # Flatten spatial and batch dimensions -> [N, C]
         _b, c, _h, _w = features.shape
         flat = features.permute(0, 2, 3, 1).reshape(-1, c).detach().cpu()
         n = flat.shape[0]
@@ -88,7 +60,6 @@ class FeatureStatsTracker:
             self.M2 += (delta * delta2).sum(dim=0)
 
     def get_std(self, eps: float = 1e-6) -> Tensor:
-        """Return channel standard deviation [C]."""
         if self.count < 2 or self.M2 is None:
             raise RuntimeError("Not enough samples to compute channel std")
         var = self.M2 / (self.count - 1)

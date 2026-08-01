@@ -1,5 +1,3 @@
-"""Tests for cosine distance, standardized Euclidean distance, and upsampling."""
-
 import torch
 
 from fm_change_detection.scoring import (
@@ -24,11 +22,10 @@ def test_cosine_score_zero_for_two_zero_vectors():
 
 def test_larger_known_changes_produce_larger_scores():
     t1 = torch.ones(1, 4, 4, 4)
-    # Small change
+
     t2_small = t1.clone()
     t2_small[:, :2, :, :] += 0.1
 
-    # Large change
     t2_large = t1.clone()
     t2_large[:, :2, :, :] += 5.0
 

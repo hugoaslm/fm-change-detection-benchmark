@@ -1,5 +1,3 @@
-"""Encoder registry and factory functions."""
-
 from typing import Any
 
 from fm_change_detection.encoders.base import FeatureEncoder
@@ -23,7 +21,6 @@ def get_encoder(
     layers: tuple[str, ...] | None = None,
     **kwargs: Any,
 ) -> FeatureEncoder:
-    """Instantiate a FeatureEncoder by name."""
     name_lower = name.lower()
 
     if name_lower == "rgb_pixels":
@@ -49,8 +46,6 @@ def get_encoder(
             weights=None,
             checkpoint_url=S2_RGB_MOCO_URL,
             layers=tuple(requested_layers),
-            # TorchGeo's SSL4EO-S12 RGB transform divides uint16 reflectance by
-            # 10,000. LEVIR-CD is already represented as float RGB in [0, 1].
             normalization_mean=(0.0, 0.0, 0.0),
             normalization_std=(1.0, 1.0, 1.0),
             license="CC-BY-4.0",

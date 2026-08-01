@@ -142,7 +142,7 @@ uv run fmcd benchmark \
 ```
 
 The Colab workflow in
-[`notebooks/colab_quickstart.ipynb`](notebooks/colab_quickstart.ipynb) covers dataset
+[`notebooks/benchmark.ipynb`](notebooks/benchmark.ipynb) covers dataset
 validation, resumable selection, selection verification, and the frozen test run.
 
 ## Implementation

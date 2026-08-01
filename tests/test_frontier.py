@@ -1,5 +1,3 @@
-"""End-to-end tests for the controlled-change detectability frontier."""
-
 from fm_change_detection.config import (
     BenchmarkConfig,
     DatasetConfig,
@@ -37,7 +35,7 @@ def test_frontier_produces_records_and_artifacts(tmp_dir, synthetic_dataset_dir)
     result = run_detectability(cfg)
 
     records = result["records"]
-    assert len(records) == 2 * 2  # 2 magnitudes x 2 area fractions
+    assert len(records) == 2 * 2
     for record in records:
         assert 0.0 <= record["ap"] <= 1.0
         assert record["num_samples"] >= 1

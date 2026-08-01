@@ -1,5 +1,3 @@
-"""DINOv2 ViT encoder implementation using timm."""
-
 import timm
 import torch
 from torch import Tensor, nn
@@ -11,8 +9,6 @@ from fm_change_detection.encoders.base import (
 
 
 class DINOv2Encoder(nn.Module):
-    """DINOv2 ViT feature encoder (e.g., ViT-S/14)."""
-
     def __init__(
         self,
         checkpoint: str = "vit_small_patch14_dinov2.lvd142m",
@@ -27,7 +23,6 @@ class DINOv2Encoder(nn.Module):
         self.requested_layers = layers
         self.patch_size = patch_size
 
-        # Load timm model
         self.model = timm.create_model(
             checkpoint, pretrained=True, num_classes=0, dynamic_img_size=True
         )
@@ -35,8 +30,6 @@ class DINOv2Encoder(nn.Module):
         for p in self.model.parameters():
             p.requires_grad_(False)
 
-        # Parse block indices (e.g. block3 -> index 2 or 3)
-        # Standard naming: block3 -> block index 2 (1-indexed vs 0-indexed mapping: block1->0, block3->2, etc. or block3->3)
         self.layer_to_block_idx = {}
         for l_name in layers:
             if l_name.startswith("block"):
@@ -64,7 +57,6 @@ class DINOv2Encoder(nn.Module):
 
     @torch.no_grad()
     def encode(self, images: Tensor) -> dict[str, Tensor]:
-        """Extract spatial feature maps for specified transformer blocks."""
         self.eval()
         b, _c, h, w = images.shape
         if h % self.patch_size != 0 or w % self.patch_size != 0:
@@ -79,7 +71,6 @@ class DINOv2Encoder(nn.Module):
         std = self.std.to(device=images.device, dtype=images.dtype)
         norm_images = (images - mean) / std
 
-        # Register forward hooks on specified blocks
         activations: dict[str, Tensor] = {}
         hooks = []
 
@@ -103,23 +94,19 @@ class DINOv2Encoder(nn.Module):
             for hook in hooks:
                 hook.remove()
 
-        # Process activations into B x C x grid_h x grid_w
         outputs: dict[str, Tensor] = {}
         for layer_name in self.requested_layers:
-            act = activations[layer_name]  # [B, 1 + N, C] or [B, N, C]
+            act = activations[layer_name]
             num_tokens = act.shape[1]
             expected_spatial_tokens = grid_h * grid_w
 
             if num_tokens == expected_spatial_tokens + 1:
-                # Drop CLS token
                 spatial_tokens = act[:, 1:, :]
             elif num_tokens == expected_spatial_tokens:
                 spatial_tokens = act
             else:
-                # Handle possible register tokens or variable token counts
                 spatial_tokens = act[:, -expected_spatial_tokens:, :]
 
-            # [B, grid_h * grid_w, C] -> [B, grid_h, grid_w, C] -> [B, C, grid_h, grid_w]
             feat_map = (
                 spatial_tokens.reshape(b, grid_h, grid_w, -1).permute(0, 3, 1, 2).contiguous()
             )

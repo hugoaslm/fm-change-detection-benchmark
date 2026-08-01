@@ -1,5 +1,3 @@
-"""Smoke test verifying CPU synthetic end-to-end pipeline execution."""
-
 from fm_change_detection.config import (
     BenchmarkConfig,
     BootstrapConfig,

@@ -13,7 +13,7 @@ encoder:
   layers: ["layer1", "layer2"]
 
 scoring:
-  method: "cosine"  # cosine | standardized_euclidean
+  method: "cosine"
 
 thresholds:
   methods: ["unlabeled", "calibrated"]

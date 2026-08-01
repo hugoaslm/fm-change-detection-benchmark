@@ -1,5 +1,3 @@
-"""Dependency-light encoders used by the RGB baseline and CPU smoke test."""
-
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
@@ -8,8 +6,6 @@ from fm_change_detection.encoders.base import EncoderMetadata, validate_feature_
 
 
 class RGBPixelsEncoder(nn.Module):
-    """Image-space RGB baseline encoder."""
-
     def __init__(self) -> None:
         super().__init__()
         self.metadata = EncoderMetadata(
@@ -33,8 +29,6 @@ class RGBPixelsEncoder(nn.Module):
 
 
 class MockEncoder(nn.Module):
-    """Fast deterministic-shape encoder for the synthetic smoke test."""
-
     def __init__(self, layers: tuple[str, ...] = ("layer1", "layer2")) -> None:
         super().__init__()
         self.conv1 = nn.Conv2d(3, 8, kernel_size=3, padding=1)

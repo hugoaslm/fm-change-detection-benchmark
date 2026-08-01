@@ -1,5 +1,3 @@
-"""Validation-only model-selection integration tests."""
-
 import json
 from pathlib import Path
 
@@ -17,7 +15,6 @@ from fm_change_detection.selection import run_validation_selection
 
 
 def test_selection_never_requires_test_split(tmp_dir, synthetic_dataset_dir):
-    # If selection accidentally validates or opens test.txt, this test fails.
     (synthetic_dataset_dir / "list" / "test.txt").unlink()
     output_dir = tmp_dir / "selection"
     config = BenchmarkConfig(

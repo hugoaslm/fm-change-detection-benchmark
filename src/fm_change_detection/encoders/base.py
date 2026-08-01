@@ -1,5 +1,3 @@
-"""Encoder protocol and metadata definitions."""
-
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -20,24 +18,12 @@ class EncoderMetadata:
 
 @runtime_checkable
 class FeatureEncoder(Protocol):
-    """Protocol for feature encoders."""
-
     metadata: EncoderMetadata
 
-    def encode(self, images: Tensor) -> dict[str, Tensor]:
-        """Extract spatial feature maps for requested layers.
-
-        Args:
-            images: Tensor of shape [B, 3, H, W] normalized in [0, 1].
-
-        Returns:
-            Dictionary mapping layer_name -> Tensor [B, C, h, w].
-        """
-        ...
+    def encode(self, images: Tensor) -> dict[str, Tensor]: ...
 
 
 def validate_feature_maps(features: dict[str, Tensor], expected_batch_size: int) -> None:
-    """Validate spatial feature map dimensions."""
     for layer_name, fmap in features.items():
         if not isinstance(fmap, Tensor):
             raise TypeError(

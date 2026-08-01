@@ -1,5 +1,3 @@
-"""Tests for feature extraction and cache key hashing."""
-
 import torch
 
 from fm_change_detection.cache import FeatureCache, compute_config_hash
