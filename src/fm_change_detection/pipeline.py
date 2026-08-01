@@ -198,6 +198,19 @@ def _preload_features_batched(
     return result
 
 
+def _change_bbox(mask: Tensor, margin: int = 32) -> tuple[slice, slice]:
+    rows = mask.any(dim=1).nonzero().flatten()
+    cols = mask.any(dim=0).nonzero().flatten()
+    height, width = mask.shape
+    if rows.numel() == 0 or cols.numel() == 0:
+        return slice(0, height), slice(0, width)
+    r0 = max(0, int(rows.min()) - margin)
+    r1 = min(height, int(rows.max()) + 1 + margin)
+    c0 = max(0, int(cols.min()) - margin)
+    c1 = min(width, int(cols.max()) + 1 + margin)
+    return slice(r0, r1), slice(c0, c1)
+
+
 def run_smoke_test(config: BenchmarkConfig) -> dict:
     print("[SMOKE] Generating synthetic dataset...")
     syn_root = generate_synthetic_dataset(
@@ -583,6 +596,7 @@ def run_detectability(config: BenchmarkConfig) -> dict:
 
     synth = config.synthetic_changes
     _log(f"[FRONTIER] loading samples: val={len(val_ds)} test={len(test_ds)}...")
+    t0_load = time.time()
     val_samples = list(
         _iter_limited(val_ds, config.runtime.max_val_samples, config.dataset.seed + 1)
     )
@@ -591,7 +605,10 @@ def run_detectability(config: BenchmarkConfig) -> dict:
     )
     if not test_samples:
         raise RuntimeError("Frontier evaluation received no test samples")
-    _log(f"[FRONTIER] loaded {len(val_samples)} val / {len(test_samples)} test samples")
+    _log(
+        f"[FRONTIER] loaded {len(val_samples)} val / {len(test_samples)} test samples "
+        f"({time.time() - t0_load:.0f}s)"
+    )
 
     t0_total = time.time()
     cells_total = len(config.encoders) * len(synth.area_fractions) * len(synth.magnitudes)
@@ -660,37 +677,60 @@ def run_detectability(config: BenchmarkConfig) -> dict:
                 continue
 
             batch_size = config.runtime.frontier_batch_size
-            for mag in synth.magnitudes:
-                scores, masks = [], []
-                started = time.time()
-                for start in range(0, len(usable), batch_size):
-                    chunk = usable[start : start + batch_size]
-                    t1_batch = torch.stack(
-                        [
-                            cache.get(f"test__{sample['sample_id']}__t1", layer).float()
-                            for sample, _region in chunk
-                        ]
-                    )
-                    t2_batch = torch.stack(
-                        [
-                            apply_additive_change(sample["image_t2"], region, mag)
-                            for sample, region in chunk
-                        ]
-                    ).to(device)
-                    t2_input = preprocess_images_for_encoder(
-                        t2_batch, input_size=config.dataset.input_size
-                    )
-                    f2_batch = encoder.encode(t2_input)[layer].detach().cpu().float()
-                    s_map = cosine_score(t1_batch, f2_batch)
-                    s_up = upsample_score_map(
-                        s_map, target_size=tuple(chunk[0][0]["change_mask"].shape)
-                    )
-                    for j, (sample, region) in enumerate(chunk):
-                        scores.append(s_up[j].cpu())
-                        masks.append(synthetic_change_mask(region, sample["change_mask"]))
+            mags = list(synth.magnitudes)
+            num_mags = len(mags)
+            scores_by_mag: dict[float, list[Tensor]] = {m: [] for m in mags}
+            masks_by_mag: dict[float, list[Tensor]] = {m: [] for m in mags}
+            area_started = time.time()
+            for start in range(0, len(usable), batch_size):
+                chunk = usable[start : start + batch_size]
+                t1_batch = torch.stack(
+                    [
+                        cache.get(f"test__{sample['sample_id']}__t1", layer).float()
+                        for sample, _region in chunk
+                    ]
+                )
+                t2_mods = torch.stack(
+                    [
+                        torch.stack(
+                            [
+                                apply_additive_change(sample["image_t2"], region, mag)
+                                for sample, region in chunk
+                            ]
+                        )
+                        for mag in mags
+                    ],
+                    dim=1,
+                )
+                t2_all = t2_mods.reshape(-1, *t2_mods.shape[2:]).to(device)
+                t2_input = preprocess_images_for_encoder(
+                    t2_all, input_size=config.dataset.input_size
+                )
+                f2_all = encoder.encode(t2_input)[layer].detach().cpu().float()
+                s_map = cosine_score(t1_batch.repeat_interleave(num_mags, dim=0), f2_all)
+                s_up = upsample_score_map(
+                    s_map, target_size=tuple(chunk[0][0]["change_mask"].shape)
+                )
+                for j, (sample, region) in enumerate(chunk):
+                    change_mask = synthetic_change_mask(region, sample["change_mask"])
+                    crop = _change_bbox(region)
+                    for m_index, mag in enumerate(mags):
+                        scores_by_mag[mag].append(s_up[j * num_mags + m_index][crop])
+                        masks_by_mag[mag].append(change_mask[crop])
 
-                metrics_calib = compute_binary_metrics(scores, masks, calib_th)
-                metrics_otsu = compute_binary_metrics(scores, masks, otsu_th)
+            _log(
+                f"[FRONTIER]   {enc_name} area={area:.3f}: scored {len(usable)} samples "
+                f"x {num_mags} mags in {time.time() - area_started:.0f}s"
+            )
+
+            for mag in mags:
+                started = time.time()
+                metrics_calib = compute_binary_metrics(
+                    scores_by_mag[mag], masks_by_mag[mag], calib_th
+                )
+                metrics_otsu = compute_binary_metrics(
+                    scores_by_mag[mag], masks_by_mag[mag], otsu_th
+                )
 
                 run_id = f"frontier_{enc_name}_{layer}_{mag}_{area}"
                 save_result_record(
