@@ -1,7 +1,0 @@
-cff-version: 1.2.0
-message: "If you use this benchmark software, please cite it as below."
-title: "Foundation Model Change Detection Benchmark (v0.1)"
-abstract: "Controlled evaluation of frozen RGB, ImageNet ResNet-50, remote-sensing ResNet-50, and DINOv2 representations for zero-shot change detection on LEVIR-CD."
-authors:
-  - name: "FM Change Detection Benchmark Team"
-date-released: 2026-07-27
