@@ -27,6 +27,7 @@ outputs/*
 !outputs/.gitkeep
 reports/figures/*
 !reports/figures/.gitkeep
+reports/frontier.md
 data/raw/
 data/processed/
 
