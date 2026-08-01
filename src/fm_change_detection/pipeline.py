@@ -97,6 +97,62 @@ def _get_cached_pair(
     return f1[layer_name].detach().cpu().float(), f2[layer_name].detach().cpu().float()
 
 
+def _preload_features_batched(
+    samples: list[ChangeSample],
+    split: str,
+    layer_name: str,
+    encoder,
+    cache: FeatureCache,
+    config: BenchmarkConfig,
+    device: torch.device,
+) -> list[tuple[Tensor, Tensor]]:
+    batch_size = config.runtime.frontier_batch_size
+    features: list[tuple[Tensor, Tensor] | None] = [None] * len(samples)
+    pending_indices: list[int] = []
+    for i, sample in enumerate(samples):
+        sample_key = f"{split}__{sample['sample_id']}"
+        t1_key, t2_key = f"{sample_key}__t1", f"{sample_key}__t2"
+        if cache.is_cached(t1_key, layer_name) and cache.is_cached(t2_key, layer_name):
+            features[i] = (
+                cache.get(t1_key, layer_name).float(),
+                cache.get(t2_key, layer_name).float(),
+            )
+        else:
+            pending_indices.append(i)
+
+    for start in range(0, len(pending_indices), batch_size):
+        idx_chunk = pending_indices[start : start + batch_size]
+        chunk = [samples[i] for i in idx_chunk]
+        t1_batch = torch.stack([s["image_t1"] for s in chunk]).to(device)
+        t2_batch = torch.stack([s["image_t2"] for s in chunk]).to(device)
+        f1_all, f2_all = extract_pair_features(
+            encoder, t1_batch, t2_batch, input_size=config.dataset.input_size
+        )
+        for j, sample in enumerate(chunk):
+            sample_key = f"{split}__{sample['sample_id']}"
+            cache.save_sample_features(
+                f"{sample_key}__t1",
+                {ln: f1_all[ln][j] for ln in f1_all},
+                dtype=config.runtime.cache_dtype,
+            )
+            cache.save_sample_features(
+                f"{sample_key}__t2",
+                {ln: f2_all[ln][j] for ln in f2_all},
+                dtype=config.runtime.cache_dtype,
+            )
+            features[idx_chunk[j]] = (
+                f1_all[layer_name][j].detach().cpu().float(),
+                f2_all[layer_name][j].detach().cpu().float(),
+            )
+
+    result: list[tuple[Tensor, Tensor]] = []
+    for item in features:
+        if item is None:
+            raise RuntimeError("Feature preload failed to cover a sample")
+        result.append(item)
+    return result
+
+
 def run_smoke_test(config: BenchmarkConfig) -> dict:
     print("[SMOKE] Generating synthetic dataset...")
     syn_root = generate_synthetic_dataset(
@@ -478,6 +534,9 @@ def run_detectability(config: BenchmarkConfig) -> dict:
     device = resolve_device(config.runtime.device)
 
     synth = config.synthetic_changes
+    val_samples = list(
+        _iter_limited(val_ds, config.runtime.max_val_samples, config.dataset.seed + 1)
+    )
     test_samples = list(
         _iter_limited(test_ds, config.runtime.max_test_samples, config.dataset.seed + 2)
     )
@@ -506,14 +565,12 @@ def run_detectability(config: BenchmarkConfig) -> dict:
         )
         cache = FeatureCache(config.cache_dir, config.dataset.name, cfg_hash)
 
+        val_features = _preload_features_batched(
+            val_samples, "val", layer, encoder, cache, config, device
+        )
         val_scores, val_masks = [], []
-        for sample in _iter_limited(
-            val_ds, config.runtime.max_val_samples, config.dataset.seed + 1
-        ):
-            f1_layer, f2_layer = _get_cached_pair(
-                sample, "val", layer, encoder, cache, config, device
-            )
-            s_map = cosine_score(f1_layer, f2_layer)
+        for sample, (f1_layer, f2_layer) in zip(val_samples, val_features):
+            s_map = cosine_score(f1_layer.unsqueeze(0), f2_layer.unsqueeze(0))
             s_up = upsample_score_map(s_map, target_size=tuple(sample["change_mask"].shape))
             val_scores.append(s_up.squeeze(0))
             val_masks.append(sample["change_mask"])
@@ -522,6 +579,14 @@ def run_detectability(config: BenchmarkConfig) -> dict:
         val_mask_stacked = torch.stack(val_masks)
         calib_th = fit_calibrated_f1_threshold(val_stacked, val_mask_stacked)
         otsu_th = compute_otsu_threshold(val_stacked)
+
+        test_features = _preload_features_batched(
+            test_samples, "test", layer, encoder, cache, config, device
+        )
+        test_t1_by_id = {
+            sample["sample_id"]: t1_layer
+            for sample, (t1_layer, _t2) in zip(test_samples, test_features)
+        }
 
         for area in synth.area_fractions:
             region_seed = (hash((synth.seed, area)) % (2**31)) & 0x7FFFFFFF
@@ -535,12 +600,7 @@ def run_detectability(config: BenchmarkConfig) -> dict:
                 print(f"[FRONTIER] No usable no-change region for {enc_name} area={area}; skipping")
                 continue
 
-            t1_features = []
-            for sample, region in usable:
-                f1_layer, _ = _get_cached_pair(
-                    sample, "test", layer, encoder, cache, config, device
-                )
-                t1_features.append(f1_layer[0].float())
+            t1_features = [test_t1_by_id[sample["sample_id"]] for sample, _region in usable]
 
             batch_size = config.runtime.frontier_batch_size
             for mag in synth.magnitudes:
