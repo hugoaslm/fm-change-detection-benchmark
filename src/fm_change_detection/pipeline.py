@@ -120,6 +120,17 @@ def _preload_features_batched(
         else:
             pending_indices.append(i)
 
+    if not pending_indices:
+        print(f"[FRONTIER]   preload {split}: all {len(samples)} samples from cache", flush=True)
+        return [features[i] for i in range(len(samples))]
+
+    print(
+        f"[FRONTIER]   preload {split}: encoding {len(pending_indices)}/{len(samples)} samples "
+        f"(batch_size={batch_size})",
+        flush=True,
+    )
+    t0 = time.time()
+    encoded = 0
     for start in range(0, len(pending_indices), batch_size):
         idx_chunk = pending_indices[start : start + batch_size]
         chunk = [samples[i] for i in idx_chunk]
@@ -144,6 +155,13 @@ def _preload_features_batched(
                 f1_all[layer_name][j].detach().cpu().float(),
                 f2_all[layer_name][j].detach().cpu().float(),
             )
+        encoded += len(idx_chunk)
+        rate = encoded / max(time.time() - t0, 1e-6)
+        print(
+            f"[FRONTIER]   preload {split}: {encoded}/{len(pending_indices)} samples "
+            f"({time.time() - t0:.0f}s, {rate:.0f} samples/s)",
+            flush=True,
+        )
 
     result: list[tuple[Tensor, Tensor]] = []
     for item in features:
@@ -525,7 +543,7 @@ def run_robustness(config: BenchmarkConfig) -> list[dict]:
 
 
 def run_detectability(config: BenchmarkConfig) -> dict:
-    print("[FRONTIER] Running controlled-change detectability frontier...")
+    print("[FRONTIER] Running controlled-change detectability frontier...", flush=True)
     dataset_root = config.dataset.root
     validate_dataset_layout(dataset_root)
     manifest_hash = compute_dataset_manifest_hash(dataset_root)
@@ -543,10 +561,24 @@ def run_detectability(config: BenchmarkConfig) -> dict:
     if not test_samples:
         raise RuntimeError("Frontier evaluation received no test samples")
 
+    t0_total = time.time()
+    cells_total = len(config.encoders) * len(synth.area_fractions) * len(synth.magnitudes)
+    cells_done = 0
+    print(
+        f"[FRONTIER] device={device} encoders={[e.name for e in config.encoders]} "
+        f"val={len(val_samples)} test={len(test_samples)} areas={synth.area_fractions} "
+        f"magnitudes={synth.magnitudes} batch_size={config.runtime.frontier_batch_size}",
+        flush=True,
+    )
+
     frontier_records = []
-    for enc_cfg in config.encoders:
+    for enc_index, enc_cfg in enumerate(config.encoders, start=1):
         enc_name = enc_cfg.name
         layer = enc_cfg.layers[0] if enc_cfg.layers else "layer4"
+        print(
+            f"[FRONTIER] encoder {enc_index}/{len(config.encoders)}: {enc_name} layer={layer}",
+            flush=True,
+        )
         encoder = _move_encoder(
             get_encoder(enc_name, checkpoint=enc_cfg.checkpoint, layers=(layer,)), device
         )
@@ -597,7 +629,10 @@ def run_detectability(config: BenchmarkConfig) -> dict:
                 if region is not None:
                     usable.append((sample, region))
             if not usable:
-                print(f"[FRONTIER] No usable no-change region for {enc_name} area={area}; skipping")
+                print(
+                    f"[FRONTIER] No usable no-change region for {enc_name} area={area}; skipping",
+                    flush=True,
+                )
                 continue
 
             t1_features = [test_t1_by_id[sample["sample_id"]] for sample, _region in usable]
@@ -678,8 +713,14 @@ def run_detectability(config: BenchmarkConfig) -> dict:
                         "otsu_threshold": otsu_th,
                     }
                 )
+                cells_done += 1
+                elapsed = time.time() - t0_total
+                eta = elapsed / cells_done * (cells_total - cells_done)
                 print(
-                    f"[FRONTIER] {enc_name} area={area:.3f} mag={mag:.3f} AP={metrics_calib.average_precision:.4f}"
+                    f"[FRONTIER] {enc_name} area={area:.3f} mag={mag:.3f} "
+                    f"AP={metrics_calib.average_precision:.4f} "
+                    f"[{cells_done}/{cells_total} cells, {elapsed:.0f}s elapsed, ~{eta:.0f}s remaining]",
+                    flush=True,
                 )
 
     generate_frontier_report(
