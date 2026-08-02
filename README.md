@@ -29,9 +29,34 @@ representations substantially outperformed direct RGB differencing. In this expe
 remote-sensing-specific pretraining did not improve on ImageNet pretraining under a controlled
 ResNet-50 comparison.
 
+### Detectability frontier
+
+Synthetic additive changes of known magnitude and spatial extent are injected into no-change
+regions of the T2 timestamp, and metrics are computed locally within the injected region with
+the clean validation threshold held fixed. Representative cells:
+
+| Representation | AP 1%·0.05 | AP 4%·0.20 | AP 16%·0.40 | AUROC 4%·0.20 |
+|---|---:|---:|---:|---:|
+| RGB pixels | 0.086 | 0.204 | 0.405 | 0.468 |
+| ResNet-50, ImageNet | 0.098 | 0.297 | 0.467 | 0.657 |
+| ResNet-50, SSL4EO-S12 MoCo | 0.104 | 0.378 | 0.533 | 0.706 |
+| DINOv2 ViT-S/14 | 0.096 | 0.276 | 0.469 | 0.634 |
+
+The frontier shows a graded, monotonic trade-off rather than a detection threshold: all learned
+representations separate injected changes more cleanly as magnitude or area grows, while raw RGB
+pixels stay flat at near-chance AUROC (~0.46-0.49) with a constant high false-alarm rate. The
+SSL Sentinel-2 ResNet-50 is the strongest detector overall but pays for it with the highest
+false-alarm inflation at the frozen threshold. At the faintest magnitude (0.05) every encoder
+remains at chance-level AUROC — a hard detectability floor — and frozen clean thresholds grow
+increasingly permissive as stronger synthetic changes begin to resemble real change. This is a
+different lens, not a contradiction: the SSL model's edge reflects low-level sensitivity to
+synthetic intensity drift, while DINOv2 remains the best detector of real building change on the
+full benchmark above.
+
 The complete selection table and test records are documented in
 [`reports/benchmark.md`](reports/benchmark.md). The compact machine-readable results
 are available in [`reports/results/final_summary.csv`](reports/results/final_summary.csv).
+The full frontier table is in [`reports/frontier.md`](reports/frontier.md).
 
 ## Experimental protocol
 
@@ -98,6 +123,7 @@ For each encoder and for every combination of change magnitude and change area, 
 reports threshold-free AP/AUROC plus F1/IoU at the frozen clean threshold. The result is an
 operating-characteristic-style table (`reports/frontier.md`), a machine-readable CSV, and an
 AP-vs-magnitude curve per area fraction for each encoder (`reports/figures/frontier_*.png`).
+Representative results are summarized in the [Results](#results) section above.
 
 ```bash
 uv run fmcd frontier --config configs/detectability.yaml --data-root /path/to/LEVIR-CD
